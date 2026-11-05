@@ -4,7 +4,7 @@ A KOReader plugin for the owner's Kindle Colorsoft: a colours-and-shapes game fo
 
 - **Stack:** Lua on KOReader's LuaJIT, KOReader's widget API (`toddler-colors-game.koplugin/`). No dependencies, no storage.
 - **Deployed:** copied by hand into the Kindle's `koreader/plugins/` with OpenMTP. No releases, no update check.
-- **Status:** design approved 2026-11-05, not yet implemented. Read `docs/plans/2026-11-05-toddler-colors-game-design.md` for the decisions and why each won. `bin/check` arrives with the first implementation task.
+- **Status:** built and passing on the emulator; the check on the real Kindle is still to come. Read `docs/plans/2026-11-05-toddler-colors-game-design.md` for the decisions and why each won.
 
 ## Principles
 
@@ -35,7 +35,7 @@ A KOReader plugin for the owner's Kindle Colorsoft: a colours-and-shapes game fo
 - Lua: KOReader's style (4-space indent, `local` everything, modules return a table).
 - Require every module in `main.lua` at load time. KOReader prepends the plugin root to `package.path` only while it loads `main.lua` (`frontend/pluginloader.lua:242`, `:269-270`), so a later `require("game")` can resolve to another plugin's same-named file.
 - `game.lua` holds the rules (mode, target never the previous one, tile shuffle, Both-mode pairing with no repeated colour or shape) and never draws. Randomness is passed in, so specs fix the sequence.
-- Shapes are SVG templates rendered from a string with the fill colour written in (`RenderImage:renderSVGImageDataWithCRengine`, `frontend/ui/renderimage.lua:104`). The first task checks in the emulator that this render keeps colour; if it doesn't, shapes are scanline spans drawn with `paintRectRGB32`, and the design doc records which path won.
+- Shapes are SVG templates rendered from a string with the fill colour written in (`RenderImage:renderSVGImageDataWithCRengine`, `frontend/ui/renderimage.lua:104`). The render keeps colour. It needs `width` and `height` on the `<svg>`, returns an opaque buffer on white, and owns nothing until `setAllocated(1)`, so without that call `free()` leaks every shape.
 - `paintRect` draws luminance only (`base/ffi/blitbuffer.lua:1704`); colour goes through `paintRectRGB32` (`:1827`).
 - The exit hold is the gap between the `hold` and `hold_release` timestamps, never a timer.
 - Out of scope, don't re-suggest: sound, scoring or progress tracking, more modes, settings, KoPanda integration, a release pipeline.

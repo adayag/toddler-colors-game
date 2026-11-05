@@ -1,6 +1,6 @@
 # Toddler Colors Game — Design
 
-Date: 2026-11-05. Status: approved, not yet implemented.
+Date: 2026-11-05. Status: approved, built and passing on the emulator; the check on the real Kindle is still to come.
 
 ## Purpose
 
@@ -22,7 +22,7 @@ Shapes mode draws in black so colour doesn't compete with shape.
 
 **Answer screen.** Any tile tap names what he tapped. There is no right or wrong: at 18 months the goal is naming things together, and a "wrong" signal would only frustrate. Any tap on the answer screen asks a new question with the tiles shuffled; the same target is never asked twice in a row.
 
-**Tap rules.** A slow press counts as a tap when the finger lifts, because a toddler's press often outlasts KOReader's 0.5 s hold threshold. A tap outside every tile on the question screen does nothing.
+**Tap rules.** A slow press counts as a tap when the finger lifts, because a toddler's press often outlasts KOReader's 0.5 s hold threshold. A tap outside every tile on the question screen does nothing. A tap beside a resting finger counts too: KOReader reports it as a two-finger tap, and the game presses at the midpoint of the two contacts.
 
 **Exit.** Holding the top-left corner for 3 seconds returns to the start screen. No other gesture leaves the game.
 
@@ -31,7 +31,7 @@ Shapes mode draws in black so colour doesn't compete with shape.
 - *7 tiles, not 2–4:* the owner's call. At 1264×1680 a 2×4 grid still gives toddler-sized targets.
 - *One-line 72 px question, not 120 px:* 120 px text and 380 px rows don't fit in 1680 px. The parent reads the question aloud, so the height goes to the tiles. The longest question ("Which one is the orange diamond?") measures about 1202 px at 72 px against 1224 px available, from the advance widths in `koreader/resources/fonts/noto/NotoSans-Regular.ttf` and `NotoSans-Bold.ttf`, kerning not counted.
 - *Seventh tile centred, not wide:* a wide tile would be the biggest target, and which colour or shape gets it would change with every shuffle.
-- *Any tap names it (exploring), then a new question:* every tap moves the game forward, so he never gets stuck on a question he can't answer yet.
+- *Any tap names it (exploring), then a new question:* every tile tap moves the game forward, so he never gets stuck on a question he can't answer yet.
 - *3-second corner hold:* hard for a toddler to trigger by accident, quick for a parent. Two-finger long press was rejected (a palm can trigger it); power-button-only was rejected (relaunching every time).
 
 ## How it's built
@@ -43,7 +43,7 @@ A standalone KOReader plugin, `toddler-colors-game.koplugin/`, separate from KoP
 3. `shapes.lua` renders each shape from an SVG template with the fill colour written into the text, through `RenderImage:renderSVGImageDataWithCRengine` (`frontend/ui/renderimage.lua:104`).
 4. `screen.lua` is one full-screen widget over KOReader with three states: start, question, answer.
 
-**Why SVG.** It renders anti-aliased (smooth curves on heart, moon and star), allows friendlier artwork (rounded star, outlines), and new artwork later is new files, not new drawing code. **Fallback:** if the emulator shows that render dropping colour, shapes are drawn as scanline spans with `paintRectRGB32`. On the Colorsoft the colour layer is 150 PPI, which hides most aliasing, so the fallback looks close. The colour test runs first because it decides which path is built.
+**Why SVG.** It renders anti-aliased (smooth curves on heart, moon and star), allows friendlier artwork (rounded star, outlines), and new artwork later is a new template string, not new drawing code. **Colour test result:** the render keeps colour exactly, so the scanline fallback was not built. It needs `width` and `height` on the `<svg>`, and it returns an opaque buffer on white, so a shape always sits on a white background.
 
 **Toddler-proofing.** The widget consumes every gesture so none reach KOReader (no swipe-down menu, no corner actions). The exit hold is measured from the `hold` and `hold_release` timestamps, so no background timer runs. Portrait is locked while the game runs.
 

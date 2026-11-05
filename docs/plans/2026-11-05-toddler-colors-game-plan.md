@@ -2,6 +2,8 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans (separate session) or superpowers:subagent-driven-development (this session) to implement this plan task by task. `AGENTS.md` overrides those skills where they differ: work on `main`, no worktree, and every commit step below waits for the owner's approval.
 
+> **As built:** the tree is the record now. Reviews changed the code after this plan was written: the walk spies on what is drawn and on `Screenshoter`, text fit is measured from what is painted (`question_width`, `answer_width` and `answer_face` are gone), `Shapes.render` calls `setAllocated(1)`, and two-finger taps count as presses.
+
 **Goal:** A KOReader plugin with three modes (Colors, Shapes, Both): a 7-tile question screen, an answer screen that names what was tapped, and a 3-second corner hold back to the start screen.
 
 **Architecture:** `game.lua` holds the rules and draws nothing. `shapes.lua` turns a shape and colour into an SVG and renders it. `screen.lua` is one full-screen widget that consumes every gesture and paints each state. `main.lua` adds the menu entry and wraps the launch in `pcall`.
@@ -1924,7 +1926,12 @@ The owner copies the whole `toddler-colors-game.koplugin/` folder into `koreader
 4. Holding the top-left corner for about 3.5 s returns to the start screen, and Exit closes the game.
 5. A resting palm or thumb doesn't trigger the corner hold or block his taps.
 6. The screen stays in portrait when the Kindle is turned, which confirms the SE has no G-sensor rotation.
-7. One round with him.
+7. With a palm resting on the screen, taps still register, and a press that smears across a tile isn't a dead tap. A smear past about 5.5 mm is a swipe, which the game ignores (`frontend/device/gesturedetector.lua:119`).
+8. A short press of the power button, then wake, returns to the same screen. A long press shows nothing from the Kindle OS over the game, and neither does a swipe down from the top edge.
+9. Night mode is off: `paintRectRGB32` honours inversion, so blue would show orange.
+10. A double stab doesn't skip the answer screen during a full refresh.
+11. `ls koreader/plugins/*/{game,screen,shapes}.lua` finds no other plugin with those module names; a same-named module loaded earlier wins `require`.
+12. One round with him.
 
 Any failure there is a new bug, handled as a failing test first where the emulator can show it.
 

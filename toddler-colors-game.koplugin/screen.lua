@@ -1,8 +1,11 @@
 -- The game's one full-screen widget: start, question and answer states over KOReader. It overrides
 -- InputContainer:onGesture (frontend/ui/widget/container/inputcontainer.lua:266) so every gesture stops here, and
--- paints with paintRectRGB32 (base/ffi/blitbuffer.lua:1827) because paintRect draws luminance only (:1704).
+-- paints with paintRectRGB32 (base/ffi/blitbuffer.lua:1827) because paintRect draws luminance only (:1704). It rotates
+-- by broadcasting SetRotationMode, which FileManager (frontend/apps/filemanager/filemanager.lua:71) and ReaderView
+-- (frontend/apps/reader/modules/readerview.lua:895) handle.
 local Blitbuffer = require("ffi/blitbuffer")
 local Device = require("device")
+local Event = require("ui/event")
 local Font = require("ui/font")
 local Game = require("game")
 local Geom = require("ui/geometry")
@@ -162,8 +165,16 @@ local function paint_shape(bb, shape, color, size, x, y)
     image:free()
 end
 
+local function rotate_to(mode)
+    if Screen:getRotationMode() ~= mode then
+        UIManager:broadcastEvent(Event:new("SetRotationMode", mode))
+    end
+end
+
 function GameScreen.open(random)
-    local widget = GameScreen:new{ random = random }
+    local rotation = Screen:getRotationMode()
+    rotate_to(Screen.DEVICE_ROTATED_UPRIGHT)
+    local widget = GameScreen:new{ random = random, rotation = rotation }
     UIManager:show(widget, "full")
     return widget
 end
@@ -322,6 +333,7 @@ function GameScreen:shutdown()
     end
     self.closed = true
     UIManager:close(self, "full")
+    rotate_to(self.rotation)
 end
 
 return GameScreen

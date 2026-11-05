@@ -380,6 +380,18 @@ local function walk()
     for _, shape in ipairs(Game.SHAPES) do
         measure({ shape = shape })
     end
+
+    tap(game.buttons[4])
+    results.exit_button = { closed = not UIManager:isWidgetShown(game) }
+
+    UIManager:broadcastEvent(Event:new("SetRotationMode", Screen.DEVICE_ROTATED_CLOCKWISE))
+    local landscape = open_game()
+    UIManager:forceRePaint()
+    results.rotation = { during = Screen:getRotationMode(), width = Screen:getWidth() }
+    gesture("tap", landscape.buttons[4].x + 10, landscape.buttons[4].y + 10)
+    UIManager:forceRePaint()
+    results.rotation.after = Screen:getRotationMode()
+    UIManager:broadcastEvent(Event:new("SetRotationMode", Screen.DEVICE_ROTATED_UPRIGHT))
     finish()
 end
 

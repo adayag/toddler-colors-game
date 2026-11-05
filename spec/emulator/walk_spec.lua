@@ -149,4 +149,18 @@ describe("the game on the emulator", function()
         assert.equals(1264, results.rotation.width)
         assert.equals(1, results.rotation.after)
     end)
+
+    describe("on an error", function()
+        it("closes when a paint fails", function()
+            assert.is_true(results.failure.paint_closed)
+        end)
+
+        it("closes when a gesture handler fails", function()
+            assert.is_true(results.failure.gesture_closed)
+        end)
+
+        it("leaves KOReader's file browser on top", function()
+            assert.is_true(results.failure.file_browser_on_top)
+        end)
+    end)
 end)

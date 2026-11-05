@@ -271,12 +271,22 @@ local function screenshot_gestures()
     return screenshots - before
 end
 
+-- Runs a step of the walk on the next tick, where nothing else would catch its error.
+local function on_next_tick(step)
+    UIManager:nextTick(function()
+        local ok, err = xpcall(step, debug.traceback)
+        if not ok then
+            finish(tostring(err))
+        end
+    end)
+end
+
 local function walk()
     spy_on_screenshot()
     local before = stack_size()
     gesture("tap", 632, 20)
     results.leak = { control_opened_menu = stack_size() > before }
-    UIManager:close(UIManager:getNthTopWidget(1))
+    require("apps/filemanager/filemanager").instance.menu:onCloseFileManagerMenu()
     results.leak.screenshot_control = screenshot_gestures() == 2
     local size = Screen:getSize()
     local buttons = require("screen").start_rects(size.w, size.h)
@@ -392,12 +402,31 @@ local function walk()
     UIManager:forceRePaint()
     results.rotation.after = Screen:getRotationMode()
     UIManager:broadcastEvent(Event:new("SetRotationMode", Screen.DEVICE_ROTATED_UPRIGHT))
-    finish()
+
+    local Shapes = require("shapes")
+    local render = Shapes.render
+    local painting = open_game()
+    Shapes.render = function()
+        error("walk: render failed")
+    end
+    tap(painting.buttons[2])
+    Shapes.render = render
+    on_next_tick(function()
+        results.failure = { paint_closed = not UIManager:isWidgetShown(painting) }
+        local round = Game.round
+        local tapping = open_game()
+        Game.round = function()
+            error("walk: round failed")
+        end
+        tap(tapping.buttons[1])
+        Game.round = round
+        on_next_tick(function()
+            results.failure.gesture_closed = not UIManager:isWidgetShown(tapping)
+            results.failure.file_browser_on_top =
+                UIManager:getNthTopWidget(1) == require("apps/filemanager/filemanager").instance
+            finish()
+        end)
+    end)
 end
 
-UIManager:nextTick(function()
-    local ok, err = xpcall(walk, debug.traceback)
-    if not ok then
-        finish(tostring(err))
-    end
-end)
+on_next_tick(walk)

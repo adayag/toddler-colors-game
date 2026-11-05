@@ -2,7 +2,8 @@
 -- InputContainer:onGesture (frontend/ui/widget/container/inputcontainer.lua:266) so every gesture stops here, and
 -- paints with paintRectRGB32 (base/ffi/blitbuffer.lua:1827) because paintRect draws luminance only (:1704). It rotates
 -- by broadcasting SetRotationMode, which FileManager (frontend/apps/filemanager/filemanager.lua:71) and ReaderView
--- (frontend/apps/reader/modules/readerview.lua:895) handle.
+-- (frontend/apps/reader/modules/readerview.lua:895) handle, and hears the Suspend that Device:_beforeSuspend broadcasts
+-- (frontend/device/generic/device.lua:1102).
 local Blitbuffer = require("ffi/blitbuffer")
 local Device = require("device")
 local Event = require("ui/event")
@@ -14,7 +15,6 @@ local Shapes = require("shapes")
 local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
 local logger = require("logger")
-local time = require("ui/time")
 local Screen = Device.screen
 
 local MARGIN = 20
@@ -26,8 +26,9 @@ local BUTTON_GAP = 40
 local EDGE = 60
 local EXIT_W = 200
 local EXIT_H = 88
-local EXIT_HOLD_S = 3
-local CORNER = 200
+local BAR_H = 80
+-- KOReader emits hold 500 ms after touch down (frontend/device/gesturedetector.lua:63, :102), so this is 3 s of finger.
+local EXIT_AFTER_HOLD_S = 2.5
 
 local GameScreen = InputContainer:extend{
     name = "toddler_colors_game",
@@ -36,7 +37,7 @@ local GameScreen = InputContainer:extend{
 
 function GameScreen.tile_rects(w, h)
     local tile_w = math.floor((w - 2 * MARGIN - GAP) / 2)
-    local tile_h = math.floor((h - HEADER_H - MARGIN - 3 * GAP) / 4)
+    local tile_h = math.floor((h - HEADER_H - MARGIN - BAR_H - 4 * GAP) / 4)
     local rects = {}
     for i = 1, 6 do
         local column, row = (i - 1) % 2, math.floor((i - 1) / 2)
@@ -49,6 +50,10 @@ function GameScreen.tile_rects(w, h)
     end
     rects[7] = { x = math.floor((w - tile_w) / 2), y = HEADER_H + 3 * (tile_h + GAP), w = tile_w, h = tile_h }
     return rects
+end
+
+function GameScreen.bar_rect(w, h)
+    return { x = MARGIN, y = h - MARGIN - BAR_H, w = w - 2 * MARGIN, h = BAR_H }
 end
 
 function GameScreen.start_rects(w, h)
@@ -122,6 +127,11 @@ local function paint_line(bb, widget, left, width, y)
     widget:free()
 end
 
+-- Paints one line centred in rect, then frees the widget.
+local function paint_centred(bb, widget, rect)
+    paint_line(bb, widget, rect.x, rect.w, rect.y + math.floor((rect.h - widget:getSize().h) / 2))
+end
+
 local function question_parts(target)
     local prefix, target_name, suffix = Game.question(target)
     return { text(prefix, "cfont", QUESTION_FACE), text(target_name, "tfont", QUESTION_FACE),
@@ -161,6 +171,7 @@ function GameScreen:init()
     self.dimen = Geom:new{ x = 0, y = 0, w = size.w, h = size.h }
     self.rects = GameScreen.tile_rects(size.w, size.h)
     self.buttons = GameScreen.start_rects(size.w, size.h)
+    self.bar = GameScreen.bar_rect(size.w, size.h)
     self.state = "start"
 end
 
@@ -171,9 +182,7 @@ function GameScreen:paint_start(bb)
         if button.exit then
             font, face = "cfont", EXIT_FACE
         end
-        local label = text(button.label, font, face)
-        local y = button.y + math.floor((button.h - label:getSize().h) / 2)
-        paint_line(bb, label, button.x, button.w, y)
+        paint_centred(bb, text(button.label, font, face), button)
     end
 end
 
@@ -205,7 +214,7 @@ end
 function GameScreen:paint_shape_answer(bb, tile)
     local lines = Game.answer(tile)
     local size, gap = ANSWER_SHAPE[#lines], ANSWER_SHAPE_GAP[#lines]
-    local y = math.floor((self.dimen.h - size - gap - #lines * ANSWER_LINE) / 2)
+    local y = math.floor((self.bar.y - size - gap - #lines * ANSWER_LINE) / 2)
     paint_shape(bb, tile.shape, tile.color, size, math.floor((self.dimen.w - size) / 2), y)
     y = y + size + gap
     for _, line in ipairs(lines) do
@@ -222,6 +231,11 @@ function GameScreen:paint_answer(bb)
     end
 end
 
+function GameScreen:paint_bar(bb)
+    framed(bb, self.bar, EXIT_BORDER, WHITE)
+    paint_centred(bb, text("Hold to exit", "cfont", EXIT_FACE), self.bar)
+end
+
 function GameScreen:paint(bb)
     fill(bb, self.dimen, WHITE)
     if self.state == "start" then
@@ -230,6 +244,9 @@ function GameScreen:paint(bb)
         self:paint_question(bb)
     else
         self:paint_answer(bb)
+    end
+    if self.state ~= "start" then
+        self:paint_bar(bb)
     end
 end
 
@@ -243,7 +260,14 @@ function GameScreen:ask()
     self:go("question")
 end
 
+function GameScreen:on_bar(pos)
+    return self.state ~= "start" and GameScreen.hit({ self.bar }, pos.x, pos.y) ~= nil
+end
+
 function GameScreen:press(pos)
+    if self:on_bar(pos) then
+        return
+    end
     if self.state == "start" then
         local button = self.buttons[GameScreen.hit(self.buttons, pos.x, pos.y) or 0]
         if button and button.exit then
@@ -263,22 +287,45 @@ function GameScreen:press(pos)
     end
 end
 
-function GameScreen:is_exit(hold, release)
-    return self.state ~= "start" and hold.pos.x < CORNER and hold.pos.y < CORNER
-        and release.time - hold.time >= time.s(EXIT_HOLD_S)
+function GameScreen:exit_to_start()
+    self.exit_task = nil
+    self.hold = nil
+    self:go("start")
 end
 
+function GameScreen:arm_exit()
+    self.exit_task = function()
+        self:guarded(self.exit_to_start)
+    end
+    UIManager:scheduleIn(EXIT_AFTER_HOLD_S, self.exit_task)
+end
+
+function GameScreen:cancel_exit()
+    if self.exit_task then
+        UIManager:unschedule(self.exit_task)
+        self.exit_task = nil
+    end
+end
+
+-- Anything but the holding finger's own drag cancels the exit: a second finger's gesture voids a held contact, which
+-- then lifts without a hold_release (frontend/device/gesturedetector.lua:522, :552).
 function GameScreen:handle(ev)
+    if ev.ges ~= "hold_pan" then
+        self:cancel_exit()
+    end
     if ev.ges == "tap" or ev.ges == "two_finger_tap" or ev.ges == "two_finger_hold_release" then
         self:press(ev.pos)
     elseif ev.ges == "hold" then
         self.hold = ev
+        if self:on_bar(ev.pos) then
+            self:arm_exit()
+        end
+    elseif ev.ges == "hold_pan" and not self:on_bar(ev.pos) then
+        self:cancel_exit()
     elseif ev.ges == "hold_release" and self.hold then
         local hold = self.hold
         self.hold = nil
-        if self:is_exit(hold, ev) then
-            self:go("start")
-        else
+        if not self:on_bar(hold.pos) then
             self:press(ev.pos)
         end
     end
@@ -287,6 +334,10 @@ end
 function GameScreen:onGesture(ev)
     self:guarded(self.handle, ev)
     return true
+end
+
+function GameScreen:onSuspend()
+    self:cancel_exit()
 end
 
 -- Runs a handler; on an error the game closes on the next tick, so KOReader's file browser is usable again.
@@ -309,6 +360,7 @@ function GameScreen:shutdown()
         return
     end
     self.closed = true
+    self:cancel_exit()
     UIManager:close(self, "full")
     rotate_to(self.rotation)
 end

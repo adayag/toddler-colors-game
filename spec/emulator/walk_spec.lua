@@ -49,6 +49,13 @@ describe("the game on the emulator", function()
                 assert.equals(results[mode].answer_shape_expected, results[mode].answer_shape)
             end)
 
+            it("paints the bar last on the question and the answer", function()
+                assert.equals("Hold to exit", results[mode].question_bar)
+                assert.is_true(results[mode].question_bar_painted)
+                assert.equals("Hold to exit", results[mode].answer_bar)
+                assert.is_true(results[mode].answer_bar_painted)
+            end)
+
             it("does one full refresh per screen change", function()
                 assert.equals("full", results[mode].question_refreshes)
                 assert.equals("full", results[mode].answer_refreshes)
@@ -77,6 +84,12 @@ describe("the game on the emulator", function()
         end
     end)
 
+    it("shows the bar's white strip on top of every colour answer", function()
+        for _, color in ipairs({ "red", "orange", "yellow", "green", "blue", "purple", "pink" }) do
+            assert.is_true(results.ink[color].bar)
+        end
+    end)
+
     it("does nothing for a tap outside every tile", function()
         assert.equals("question", results.taps.gap)
         assert.equals("question", results.taps.beside_seventh)
@@ -93,31 +106,91 @@ describe("the game on the emulator", function()
         assert.equals("question", results.taps.two_finger_hold_release)
     end)
 
-    describe("the corner hold", function()
-        it("does not exit at 2.9 s", function()
-            assert.equals("question", results.exit.at_2_9)
+    describe("the hold to exit bar", function()
+        it("is not on the start screen", function()
+            assert.is_false(results.start.bar_painted)
+            assert.equals("Colors,Shapes,Both,Exit", results.bar.start_words)
         end)
 
-        it("returns to the start screen at 3.0 s", function()
-            assert.equals("start", results.exit.at_3_0)
+        it("does nothing for a tap or a slow press on a question", function()
+            assert.equals("question", results.bar.tap_on_question)
+            assert.equals("question", results.bar.press_on_question)
         end)
 
-        it("does not exit from elsewhere on the screen", function()
-            assert.equals("question", results.exit.outside_corner)
-            assert.equals("question", results.exit.below_corner)
+        it("does nothing for any tap or slow press on an answer", function()
+            assert.equals("answer", results.bar.tap_on_answer)
+            assert.equals("answer", results.bar.press_on_answer)
+            assert.equals("answer", results.bar.two_finger_tap)
+            assert.equals("answer", results.bar.two_finger_release)
+            assert.equals("answer", results.bar.lift_on_bar)
+        end)
+
+        it("leaves the answer's next tap live right above it", function()
+            assert.equals("question", results.bar.tap_above_bar)
+        end)
+
+        it("schedules the exit 2.5 s after hold, which comes 0.5 s after touch down", function()
+            assert.equals(2.5, results.bar.delay)
+        end)
+
+        it("goes to the start screen only when the timer fires, with one full refresh", function()
+            assert.equals("answer", results.bar.before_firing)
+            assert.equals("start", results.bar.fired)
+            assert.equals("full", results.bar.fired_refreshes)
+            assert.equals("start", results.left_answer)
+        end)
+
+        it("ignores the late release after the timer fired, even over Exit", function()
+            assert.equals("start", results.bar.late_release)
+            assert.equals("", results.bar.late_refreshes)
+        end)
+
+        it("stays put and cancels when released early", function()
+            assert.is_false(results.bar.release_keeps)
+            assert.equals("question", results.bar.after_release)
+        end)
+
+        it("cancels when the finger drifts off, and the lift presses nothing", function()
+            assert.is_false(results.bar.drift_keeps)
+            assert.equals("question", results.bar.after_drift)
+        end)
+
+        it("stays armed while the finger moves along the bar", function()
+            assert.is_true(results.bar.pan_on_bar_keeps)
+        end)
+
+        it("cancels on every gesture but the holding finger's own drag", function()
+            assert.same({ "tap", "double_tap", "two_finger_tap", "touch", "swipe", "two_finger_swipe", "multiswipe",
+                "pan", "pan_release", "two_finger_pan", "hold", "hold_release", "two_finger_hold",
+                "two_finger_hold_release", "pinch", "spread", "inward_pan", "outward_pan", "rotate" },
+                results.bar.cancelled_by)
+        end)
+
+        it("never leaves two timers queued", function()
+            assert.is_false(results.bar.first_hold_keeps)
+        end)
+
+        it("cancels on Suspend", function()
+            assert.is_false(results.bar.suspend_keeps)
+        end)
+
+        it("cancels when the game closes", function()
+            assert.is_false(results.bar.close_keeps)
+        end)
+
+        it("arms nothing for a hold elsewhere, and the lift is a slow press", function()
+            assert.equals(0, results.bar.elsewhere_timers)
+            assert.equals("answer", results.bar.elsewhere)
+        end)
+
+        it("is not live on the start screen", function()
+            assert.equals(0, results.bar.on_start_timers)
+            assert.equals("start", results.bar.on_start)
+            assert.equals("", results.bar.on_start_refreshes)
         end)
 
         it("ignores a release with no hold before it", function()
-            assert.equals("question", results.exit.release_without_hold)
-        end)
-
-        it("exits when a held finger drifts out of the corner", function()
-            assert.equals("start", results.exit.drifted)
-        end)
-
-        it("does nothing on the start screen", function()
-            assert.equals("start", results.exit.on_start)
-            assert.equals("", results.exit.on_start_refreshes)
+            assert.equals("question", results.bar.release_without_hold)
         end)
     end)
 
@@ -149,6 +222,10 @@ describe("the game on the emulator", function()
         assert.is_true(results.text_right <= 1244)
     end)
 
+    it("keeps every question and answer above the bar", function()
+        assert.is_true(results.text_bottom <= 1580)
+    end)
+
     it("closes from the start screen's Exit button", function()
         assert.is_true(results.exit_button.closed)
     end)
@@ -171,6 +248,11 @@ describe("the game on the emulator", function()
 
         it("closes when a gesture handler fails", function()
             assert.is_true(results.failure.gesture_closed)
+        end)
+
+        it("closes when the exit timer fails", function()
+            assert.is_false(results.failure.timer_raised)
+            assert.is_true(results.failure.timer_closed)
         end)
 
         it("leaves KOReader's file browser on top", function()

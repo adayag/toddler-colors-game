@@ -2,7 +2,7 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans (separate session) or superpowers:subagent-driven-development (this session) to implement this plan task by task. `AGENTS.md` overrides those skills where they differ: work on `main`, no worktree, and every commit step below waits for the owner's approval.
 
-> **As built:** the tree is the record now. Reviews changed the code after this plan was written: the walk spies on what is drawn and on `Screenshoter`, text fit is measured from what is painted (`question_width`, `answer_width` and `answer_face` are gone), `Shapes.render` calls `setAllocated(1)`, and two-finger taps count as presses.
+> **As built:** the tree is the record now. Reviews changed the code after this plan was written: the walk spies on what is drawn and on `Screenshoter`, text fit is measured from what is painted (`question_width`, `answer_width` and `answer_face` are gone), `Shapes.render` calls `setAllocated(1)`, two-finger taps count as presses, and a "Hold to exit" bar replaced the corner hold, which shrank the tiles to 600×338.
 
 **Goal:** A KOReader plugin with three modes (Colors, Shapes, Both): a 7-tile question screen, an answer screen that names what was tapped, and a 3-second corner hold back to the start screen.
 
@@ -1923,8 +1923,8 @@ The owner copies the whole `toddler-colors-game.koplugin/` folder into `koreader
 1. The menu shows Tools › Toddler Colors Game, and opening it from both the file browser and a book works.
 2. Pink vs red and blue vs purple are easy to tell apart.
 3. The screen has no ghosting between screens, and one-refresh flashing is acceptable.
-4. Holding the top-left corner for about 3.5 s returns to the start screen, and Exit closes the game.
-5. A resting palm or thumb doesn't trigger the corner hold or block his taps.
+4. Holding the "Hold to exit" bar for 3 s returns to the start screen with the finger still down, a tap on it does nothing, and Exit closes the game.
+5. A resting palm on the bar goes to the start screen, taps still register with a hand resting, and the exit works with your normal grip, because a thumb resting anywhere on the glass cancels it.
 6. The screen stays in portrait when the Kindle is turned, which confirms the SE has no G-sensor rotation.
 7. With a palm resting on the screen, taps still register, and a press that smears across a tile isn't a dead tap. A smear past about 5.5 mm is a swipe, which the game ignores (`frontend/device/gesturedetector.lua:119`).
 8. A short press of the power button, then wake, returns to the same screen. A long press shows nothing from the Kindle OS over the game, and neither does a swipe down from the top edge.

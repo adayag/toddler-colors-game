@@ -10,7 +10,7 @@ A game on the owner's Kindle Colorsoft for their 18-month-old son, to learn colo
 
 **Start screen (for the parent).** Three big buttons, **Colors**, **Shapes**, **Both**, and a small **Exit** that returns to KOReader.
 
-**Question screen.** A one-line question at the top (72 px) and 7 big tiles below in a 2-column grid (600×364 px each), with the seventh tile centred on the last row.
+**Question screen.** A one-line question at the top (72 px) and 7 big tiles below in a 2-column grid (600×338 px each), with the seventh tile centred on the last row, above an 80 px "Hold to exit" bar.
 
 | Mode | Tiles | Question | Answer screen |
 |---|---|---|---|
@@ -24,7 +24,7 @@ Shapes mode draws in black so colour doesn't compete with shape.
 
 **Tap rules.** A slow press counts as a tap when the finger lifts, because a toddler's press often outlasts KOReader's 0.5 s hold threshold. A tap outside every tile on the question screen does nothing. A tap beside a resting finger counts too: KOReader reports it as a two-finger tap, and the game presses at the midpoint of the two contacts.
 
-**Exit.** Holding the top-left corner for 3 seconds returns to the start screen. No other gesture leaves the game.
+**Exit.** A "Hold to exit" bar runs across the bottom of every question and answer screen. Holding it for 3 seconds returns to the start screen with the finger still down. A tap on it does nothing, and no other gesture leaves the game. KOReader sends `hold` 0.5 s after touch down (`frontend/device/gesturedetector.lua:63`), so the timer runs 2.5 s from there. Releasing, drifting off the bar, closing and sleeping cancel it. So does a second finger, because KOReader can void a resting contact so that its lift never arrives (`gesturedetector.lua:522`, `:552`), and a late second finger could otherwise press the start screen as it appears.
 
 ### Why these choices
 
@@ -32,7 +32,7 @@ Shapes mode draws in black so colour doesn't compete with shape.
 - *One-line 72 px question, not 120 px:* 120 px text and 380 px rows don't fit in 1680 px. The parent reads the question aloud, so the height goes to the tiles. The longest question ("Which one is the orange diamond?") measures about 1202 px at 72 px against 1224 px available, from the advance widths in `koreader/resources/fonts/noto/NotoSans-Regular.ttf` and `NotoSans-Bold.ttf`, kerning not counted.
 - *Seventh tile centred, not wide:* a wide tile would be the biggest target, and which colour or shape gets it would change with every shuffle.
 - *Any tap names it (exploring), then a new question:* every tile tap moves the game forward, so he never gets stuck on a question he can't answer yet.
-- *3-second corner hold:* hard for a toddler to trigger by accident, quick for a parent. Two-finger long press was rejected (a palm can trigger it); power-button-only was rejected (relaunching every time).
+- *3-second hold on a visible bar:* hard for a toddler to trigger by accident, quick for a parent, and the owner found the first version, an invisible top-left corner hold that fired on release, unintuitive on the device. A small X was rejected because the words say what to do. Firing with the finger still down needs one timer, armed only while a finger is on the bar; a resting hand can reach a full-width bar more easily, which costs a trip to the start screen, where Exit is one tap away. Two-finger long press was rejected (a palm can trigger it); power-button-only was rejected (relaunching every time).
 
 ## How it's built
 
@@ -45,7 +45,7 @@ A standalone KOReader plugin, `toddler-colors-game.koplugin/`, separate from KoP
 
 **Why SVG.** It renders anti-aliased (smooth curves on heart, moon and star), allows friendlier artwork (rounded star, outlines), and new artwork later is a new template string, not new drawing code. **Colour test result:** the render keeps colour exactly, so the scanline fallback was not built. It needs `width` and `height` on the `<svg>`, and it returns an opaque buffer on white, so a shape always sits on a white background.
 
-**Toddler-proofing.** The widget consumes every gesture so none reach KOReader (no swipe-down menu, no corner actions). The exit hold is measured from the `hold` and `hold_release` timestamps, so no background timer runs. Portrait is locked while the game runs.
+**Toddler-proofing.** The widget consumes every gesture so none reach KOReader (no swipe-down menu, no corner actions). The exit bar's timer runs only while a finger is on it. Portrait is locked while the game runs.
 
 **E-ink.** One full refresh per screen change so the previous colour doesn't ghost. No animation.
 
@@ -54,7 +54,7 @@ A standalone KOReader plugin, `toddler-colors-game.koplugin/`, separate from KoP
 1. **SVG colour test first**, in the emulator (~15 min): render one coloured SVG and check the pixels are colour.
 2. **Unit specs for `game.lua`** (busted from the emulator): no target twice in a row, 7 distinct tiles, Both mode has no repeated colour or shape.
 3. **Emulator captures** at 1264×1680 of start, question and answer in each mode. The owner reviews the PNGs before anything goes on the Kindle.
-4. **On the Kindle:** pink vs red and blue vs purple are distinguishable; the 3-second corner hold exits and nothing else does; one round with him.
+4. **On the Kindle:** pink vs red and blue vs purple are distinguishable; the 3-second hold on the bar exits and nothing else does; one round with him.
 
 ## Delivery
 

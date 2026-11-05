@@ -1,9 +1,10 @@
 -- KOReader userpatch (late priority, frontend/userpatch.lua:13) copied into a scratch profile by
 -- spec/emulator/driver.lua. Plays through the game by sending gestures to UIManager, the way the input loop does,
 -- wrapping TextWidget:paintTo (frontend/ui/widget/textwidget.lua:338), UIManager:_refresh
--- (frontend/ui/uimanager.lua:1200) and UIManager:scheduleIn (:413) to see what each screen drew and queued, and
--- counting the file manager's Screenshoter gestures to catch a leak. Writes what it saw, and any error in
--- results.error, to results.json, shoots one PNG per screen, then quits.
+-- (frontend/ui/uimanager.lua:1200) and UIManager:scheduleIn (:413) to see what each screen drew and queued, asking
+-- UIManager:unschedule (:518), which says whether it removed anything, if a timer is still queued, and counting the
+-- file manager's Screenshoter gestures to catch a leak. Writes what it saw, and any error in results.error, to
+-- results.json, shoots one PNG per screen, then quits.
 local dir = os.getenv("TODDLER_WALK_DIR")
 if not dir then
     return
@@ -85,6 +86,13 @@ local function tools_entry()
     end
 end
 
+-- Whether the bar's black border, white strip and black label are on the screen.
+local function bar_painted(game)
+    local bar = game.bar
+    local middle = bar.y + math.floor(bar.h / 2)
+    return pixel(bar.x + 1, middle) == "#000000" and pixel(bar.x + 8, middle) == "#FFFFFF" and holds(bar, "#000000")
+end
+
 local function all_true(list)
     for _, value in ipairs(list) do
         if not value then
@@ -96,6 +104,9 @@ end
 
 -- What the plugin drew since the last clear_drawn; nil leaves the spy inert.
 local drawn
+
+-- Every scheduleIn since the last reset, oldest first.
+local timers = {}
 
 local function clear_drawn()
     drawn = { text = {}, shapes = {}, refreshes = {} }
@@ -121,6 +132,9 @@ local function spy_on_drawing()
         if drawn then
             drawn.left = math.min(drawn.left or x, x)
             drawn.right = math.max(drawn.right or 0, x + widget:getWidth())
+            if widget.text ~= "Hold to exit" then
+                drawn.bottom = math.max(drawn.bottom or 0, y + widget:getSize().h)
+            end
         end
         return paint_text(widget, bb, x, y)
     end
@@ -132,9 +146,10 @@ local function spy_on_drawing()
         note("refreshes", mode)
         return refresh(manager, mode, ...)
     end
-    UIManager.scheduleIn = function(manager, ...)
+    UIManager.scheduleIn = function(manager, seconds, action, ...)
         note("refreshes", "scheduled")
-        return schedule_in(manager, ...)
+        table.insert(timers, { seconds = seconds, action = action })
+        return schedule_in(manager, seconds, action, ...)
     end
 end
 
@@ -148,6 +163,8 @@ local function play(game, index, mode)
     tap(game.buttons[index])
     shoot(mode .. "-question")
     seen.question_refreshes = table.concat(drawn.refreshes, ",")
+    seen.question_bar = table.remove(drawn.text)
+    seen.question_bar_painted = bar_painted(game)
     seen.question_words = table.concat(drawn.text)
     seen.question_expected = table.concat({ Game.question(game.round.target) })
     seen.tile_shapes = table.concat(drawn.shapes, ",")
@@ -173,6 +190,8 @@ local function play(game, index, mode)
     tap(game.rects[2])
     shoot(mode .. "-answer")
     seen.answer_refreshes = table.concat(drawn.refreshes, ",")
+    seen.answer_bar = table.remove(drawn.text)
+    seen.answer_bar_painted = bar_painted(game)
     seen.answer_words = table.concat(drawn.text, " ")
     seen.answer_expected = table.concat(Game.answer(tapped), " ")
     seen.answer_shape = table.concat(drawn.shapes, ",")
@@ -185,7 +204,7 @@ local function play(game, index, mode)
         local ink = Shapes.is_dark(tapped.color) and "#FFFFFF" or "#000000"
         seen.answer_text = holds({ x = 0, y = 755, w = Screen:getWidth(), h = 170 }, ink)
     else
-        seen.answer_text = holds({ x = 0, y = 1420, w = Screen:getWidth(), h = 150 }, "#000000")
+        seen.answer_text = holds({ x = 0, y = 1360, w = Screen:getWidth(), h = 160 }, "#000000")
     end
 
     clear_drawn()
@@ -203,14 +222,47 @@ local function ink_on(game, color)
     game:go("answer")
     UIManager:forceRePaint()
     local band = { x = 0, y = 755, w = Screen:getWidth(), h = 170 }
-    return { white = holds(band, "#FFFFFF"), black = holds(band, "#000000") }
+    return { white = holds(band, "#FFFFFF"), black = holds(band, "#000000"), bar = bar_painted(game) }
 end
 
--- Holds a point from at to at + gap, in the same units as the gesture timestamps.
-local function hold(x, y, at, gap)
-    gesture("hold", x, y, at)
-    gesture("hold_release", x, y, at + gap)
+-- A hold at a point and its lift.
+local function hold(x, y)
+    gesture("hold", x, y)
+    gesture("hold_release", x, y)
     UIManager:forceRePaint()
+end
+
+local function bar_centre(game)
+    return game.bar.x + math.floor(game.bar.w / 2), game.bar.y + math.floor(game.bar.h / 2)
+end
+
+-- Takes the newest timer off the queue and runs it, as the UI loop does when its delay is up.
+local function fire()
+    local timer = table.remove(timers)
+    UIManager:unschedule(timer.action)
+    timer.action()
+    UIManager:forceRePaint()
+end
+
+-- The way back to the start screen: a hold on the bar, its timer firing, then the lift.
+local function leave(game)
+    local x, y = bar_centre(game)
+    timers = {}
+    gesture("hold", x, y)
+    fire()
+    gesture("hold_release", x, y)
+    UIManager:forceRePaint()
+end
+
+-- Holds the bar, runs step, and says whether the exit timer outlived it, taking the timer off the queue if so. Nil when
+-- the hold armed nothing.
+local function survives(game, step)
+    local x, y = bar_centre(game)
+    timers = {}
+    gesture("hold", x, y)
+    local timer = timers[1]
+    step()
+    return timer and UIManager:unschedule(timer.action)
 end
 
 local LEAK_GESTURES = {
@@ -302,23 +354,107 @@ local function measure_text(game)
         game:go("answer")
         UIManager:forceRePaint()
     end
-    results.text_left, results.text_right = drawn.left, drawn.right
+    results.text_left, results.text_right, results.text_bottom = drawn.left, drawn.right, drawn.bottom
     drawn = nil
     game:go("start")
     UIManager:forceRePaint()
 end
 
--- The walk from the lone release on, a tick later so that a close the release queued has happened.
-local function after_lone_release(game, t1)
-    results.exit.release_without_hold = UIManager:isWidgetShown(game) and game.state or "closed"
-    gesture("hold", 50, 50, t1)
-    gesture("hold_release", 400, 400, t1 + time.s(3))
-    UIManager:forceRePaint()
-    results.exit.drifted = game.state
+-- Every way of touching the bar, from a question to the start screen.
+local function try_bar(game)
+    local seen = results.bar
+    local x, y = bar_centre(game)
+    local function lift()
+        gesture("hold_release", x, y)
+    end
+
+    gesture("tap", x, y)
+    seen.tap_on_question = game.state
+    hold(x, y)
+    seen.press_on_question = game.state
+    tap(game.rects[1])
+    gesture("tap", x, y)
+    seen.tap_on_answer = game.state
+    hold(x, y)
+    seen.press_on_answer = game.state
+    gesture("two_finger_tap", x, y)
+    seen.two_finger_tap = game.state
+    gesture("two_finger_hold_release", x, y)
+    seen.two_finger_release = game.state
+    gesture("hold", 300, 300)
+    lift()
+    seen.lift_on_bar = game.state
+    gesture("tap", x, game.bar.y - 1)
+    seen.tap_above_bar = game.state
+
+    seen.release_keeps = survives(game, lift)
+    seen.after_release = game.state
+    seen.drift_keeps = survives(game, function()
+        gesture("hold_pan", 300, 300)
+    end)
+    gesture("hold_release", 300, 300)
+    seen.after_drift = game.state
+    seen.pan_on_bar_keeps = survives(game, function()
+        gesture("hold_pan", x + 200, y)
+    end)
+    lift()
+    seen.cancelled_by = {}
+    for _, ges in ipairs(LEAK_GESTURES) do
+        if ges ~= "hold_pan" then
+            local kept = survives(game, function()
+                gesture(ges, x, y)
+            end)
+            if kept == false then
+                table.insert(seen.cancelled_by, ges)
+            end
+            lift()
+        end
+    end
+    timers = {}
+    gesture("hold", x, y)
+    gesture("hold", x, y)
+    seen.first_hold_keeps = UIManager:unschedule(timers[1].action)
+    lift()
+    seen.suspend_keeps = survives(game, function()
+        UIManager:broadcastEvent(Event:new("Suspend"))
+    end)
+    lift()
+
+    timers = {}
+    hold(300, 300)
+    seen.elsewhere_timers = #timers
+    seen.elsewhere = game.state
+
+    -- Over the part of the bar that is Exit once the start screen is up, where a stray release would close the game.
+    local over_exit = { x = game.buttons[4].x + 10, y = game.bar.y + 20 }
+    timers = {}
+    gesture("hold", over_exit.x, over_exit.y)
+    seen.delay = timers[1].seconds
+    seen.before_firing = game.state
     clear_drawn()
-    hold(50, 50, t1, time.s(3))
-    results.exit.on_start = game.state
-    results.exit.on_start_refreshes = table.concat(drawn.refreshes, ",")
+    fire()
+    seen.fired = game.state
+    seen.fired_refreshes = table.concat(drawn.refreshes, ",")
+    seen.start_words = table.concat(drawn.text, ",")
+    clear_drawn()
+    gesture("hold_release", over_exit.x, over_exit.y)
+    UIManager:forceRePaint()
+    seen.late_release = UIManager:isWidgetShown(game) and game.state or "closed"
+    seen.late_refreshes = table.concat(drawn.refreshes, ",")
+    drawn = nil
+end
+
+-- The walk from the lone release on, a tick later so that a close the release queued has happened.
+local function after_lone_release(game)
+    results.bar.release_without_hold = UIManager:isWidgetShown(game) and game.state or "closed"
+    try_bar(game)
+    local x, y = bar_centre(game)
+    timers = {}
+    clear_drawn()
+    hold(x, y)
+    results.bar.on_start = game.state
+    results.bar.on_start_timers = #timers
+    results.bar.on_start_refreshes = table.concat(drawn.refreshes, ",")
     drawn = nil
 
     local depth = stack_size()
@@ -329,14 +465,16 @@ local function after_lone_release(game, t1)
     tap(game.buttons[1])
     send_all(632, 20)
     send_all(10, 1670)
+    send_all(x, y)
     results.leak.game_kept = stack_size() == depth and UIManager:getNthTopWidget(1) == game
     results.leak.screenshot_on_question = screenshot_gestures() > 0
-    hold(50, 50, time.now(), time.s(3))
+    leave(game)
 
     measure_text(game)
 
+    -- The lower half of Exit, which shares its pixels with the bar on the other screens.
     clear_drawn()
-    tap(game.buttons[4])
+    tap({ x = game.buttons[4].x, y = game.bar.y, w = game.buttons[4].w, h = 40 })
     results.exit_button = {
         closed = not UIManager:isWidgetShown(game),
         refreshes = table.concat(drawn.refreshes, ","),
@@ -351,6 +489,13 @@ local function after_lone_release(game, t1)
     UIManager:forceRePaint()
     results.rotation.after = Screen:getRotationMode()
     UIManager:broadcastEvent(Event:new("SetRotationMode", Screen.DEVICE_ROTATED_UPRIGHT))
+    UIManager:forceRePaint()
+
+    local closing = open_game()
+    tap(closing.buttons[1])
+    results.bar.close_keeps = survives(closing, function()
+        closing:shutdown()
+    end)
     UIManager:forceRePaint()
 
     local Shapes = require("shapes")
@@ -376,22 +521,34 @@ local function after_lone_release(game, t1)
         tap(tapping.buttons[1])
         Game.round = round
         on_next_tick(function()
-            local file_browser = require("apps/filemanager/filemanager").instance
             results.failure.gesture_closed = not UIManager:isWidgetShown(tapping)
-            results.failure.file_browser_on_top = UIManager:getNthTopWidget(1) == file_browser
-            local GameScreen = require("screen")
-            local init = GameScreen.init
-            GameScreen.init = function()
-                error("walk: open failed")
+            local timing = open_game()
+            tap(timing.buttons[1])
+            timers = {}
+            gesture("hold", bar_centre(timing))
+            timing.go = function()
+                error("walk: exit failed")
             end
-            results.failure.open_kept_file_browser = open_game() == file_browser
-            GameScreen.init = init
-            finish()
+            results.failure.timer_raised = not pcall(fire)
+            on_next_tick(function()
+                local file_browser = require("apps/filemanager/filemanager").instance
+                results.failure.timer_closed = not UIManager:isWidgetShown(timing)
+                results.failure.file_browser_on_top = UIManager:getNthTopWidget(1) == file_browser
+                local GameScreen = require("screen")
+                local init = GameScreen.init
+                GameScreen.init = function()
+                    error("walk: open failed")
+                end
+                results.failure.open_kept_file_browser = open_game() == file_browser
+                GameScreen.init = init
+                finish()
+            end)
         end)
     end)
 end
 
 local function walk()
+    spy_on_drawing()
     spy_on_screenshot()
     local before = stack_size()
     gesture("tap", 632, 20)
@@ -415,9 +572,9 @@ local function walk()
         button = pixel(buttons[1].x + 2, buttons[1].y + 2),
         background = pixel(5, 5),
         exit_label = holds(buttons[4], "#000000"),
+        bar_painted = bar_painted(game),
     }
     tap(game.buttons[1])
-    local t0 = time.now()
     results.taps = {}
     gesture("tap", 632, 300)
     UIManager:forceRePaint()
@@ -428,13 +585,9 @@ local function walk()
     gesture("tap", 300, 60)
     UIManager:forceRePaint()
     results.taps.header = game.state
-    gesture("hold", 300, 300, t0)
-    gesture("hold_release", 300, 300, t0 + time.s(1))
-    UIManager:forceRePaint()
+    hold(300, 300)
     results.taps.slow_press = game.state
-    gesture("hold", 300, 300, t0)
-    gesture("hold_release", 300, 300, t0 + time.s(1))
-    UIManager:forceRePaint()
+    hold(300, 300)
     results.taps.slow_press_on_answer = game.state
     gesture("two_finger_tap", 300, 300)
     UIManager:forceRePaint()
@@ -442,36 +595,25 @@ local function walk()
     gesture("two_finger_hold_release", 300, 300)
     UIManager:forceRePaint()
     results.taps.two_finger_hold_release = game.state
-    hold(50, 50, time.now(), time.s(3))
-    spy_on_drawing()
+    leave(game)
     results.colors = play(game, 1, "colors")
     results.ink = {}
     for _, color in ipairs(require("game").COLORS) do
         results.ink[color] = ink_on(game, color)
     end
-    hold(50, 50, time.now(), time.s(3))
+    leave(game)
+    results.left_answer = game.state
     results.shapes = play(game, 2, "shapes")
-    hold(50, 50, time.now(), time.s(3))
+    leave(game)
     results.both = play(game, 3, "both")
-    hold(50, 50, time.now(), time.s(3))
+    leave(game)
 
-    results.exit = {}
+    results.bar = {}
     tap(game.buttons[1])
-    local t1 = time.now()
-    hold(50, 50, t1, time.s(2.9))
-    results.exit.at_2_9 = game.state
-    hold(50, 50, t1, time.s(3))
-    results.exit.at_3_0 = game.state
-    tap(game.buttons[1])
-    hold(700, 50, t1, time.s(3))
-    results.exit.outside_corner = game.state
-    hold(50, game.rects[3].y - 1, t1, time.s(3))
-    results.exit.below_corner = game.state
-    hold(50, 50, t1, time.s(2.9))
-    gesture("hold_release", 300, 300, t1 + time.s(3))
+    gesture("hold_release", 300, 300)
     UIManager:forceRePaint()
     on_next_tick(function()
-        after_lone_release(game, t1)
+        after_lone_release(game)
     end)
 end
 

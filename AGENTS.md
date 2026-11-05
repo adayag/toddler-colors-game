@@ -9,9 +9,9 @@ A KOReader plugin for the owner's Kindle Colorsoft: a colours-and-shapes game fo
 ## Principles
 
 - **No wrong answers.** Every tile tap moves the game forward. Don't add scoring, "try again", or anything that marks a tap wrong.
-- **Toddler-proof.** The game's full-screen widget consumes every gesture (tap, hold, swipe, pan, pinch) so none reach KOReader underneath. The only way out is holding the top-left corner for 3 seconds; the start screen's Exit button then closes the game. Portrait is locked while it runs.
+- **Toddler-proof.** The game's full-screen widget consumes every gesture (tap, hold, swipe, pan, pinch) so none reach KOReader underneath. The only way out is holding the "Hold to exit" bar at the bottom of the screen for 3 seconds; the start screen's Exit button then closes the game. Portrait is locked while it runs.
 - **No settings.** The mode is picked on the start screen each time. A settings key enters only when the owner has wanted to change that thing on the real device.
-- **E-ink rules.** The screen redraws only on input. No background timers, no animations. Each screen change is one full refresh so the previous colour doesn't ghost.
+- **E-ink rules.** The screen redraws only on input. No animations, and no timers except the exit bar's one-shot, armed only while a finger is on the bar. Each screen change is one full refresh so the previous colour doesn't ghost.
 - **A failure never strands the device.** Every entry point from KOReader is wrapped in `pcall`; on an error the game closes and KOReader's file browser is usable again.
 
 ## Emulator, devices and references
@@ -37,14 +37,14 @@ A KOReader plugin for the owner's Kindle Colorsoft: a colours-and-shapes game fo
 - `game.lua` holds the rules (mode, target never the previous one, tile shuffle, Both-mode pairing with no repeated colour or shape) and never draws. Randomness is passed in, so specs fix the sequence.
 - Shapes are SVG templates rendered from a string with the fill colour written in (`RenderImage:renderSVGImageDataWithCRengine`, `frontend/ui/renderimage.lua:104`). The render keeps colour. It needs `width` and `height` on the `<svg>`, returns an opaque buffer on white, and owns nothing until `setAllocated(1)`, so without that call `free()` leaks every shape.
 - `paintRect` draws luminance only (`base/ffi/blitbuffer.lua:1704`); colour goes through `paintRectRGB32` (`:1827`).
-- The exit hold is the gap between the `hold` and `hold_release` timestamps, never a timer.
+- The exit bar arms a one-shot timer 2.5 s after `hold`, which KOReader sends 0.5 s after touch down, so it fires at 3 s of finger with the finger still down. Releasing, drifting off the bar, a second finger, closing and sleeping all cancel it.
 - Out of scope, don't re-suggest: sound, scoring or progress tracking, more modes, settings, KoPanda integration, a release pipeline.
 
 ## Testing
 
 - TDD, no exceptions: write the failing test first, run it, implement, run again. Every behaviour change ships with a test. A change to a colour value or a layout number alone needs no new test; the owner judges those by eye on the emulator.
-- Two layers: Busted unit specs on KOReader's LuaJIT under a fresh `KO_HOME` for the pure parts (`game.lua`, the SVG templating); emulator capture specs at 1264×1680 for what only a running KOReader shows: that each screen renders in each mode, that gestures don't leak to KOReader, and that the corner hold exits.
-- Test the edges where behaviour changes (a hold of 2.9 s and 3.0 s), not every value in a range.
+- Two layers: Busted unit specs on KOReader's LuaJIT under a fresh `KO_HOME` for the pure parts (`game.lua`, the SVG templating); emulator capture specs at 1264×1680 for what only a running KOReader shows: that each screen renders in each mode, that gestures don't leak to KOReader, and that the bar hold exits.
+- Test the edges where behaviour changes (a release just before the exit timer fires, and the timer firing), not every value in a range.
 - No real waits: a duration in a test is passed in at test size; production values stay.
 - No goldens: no capture is compared against a committed image. A capture spec may sample a pixel (a tile's colour) or compare two captures from the same run. The owner reviews the PNGs before anything goes on the Kindle.
 

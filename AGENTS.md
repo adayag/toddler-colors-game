@@ -8,7 +8,7 @@ A KOReader plugin for the owner's Kindle Colorsoft: a colours-and-shapes game fo
 
 ## Principles
 
-- **No wrong answers.** Every tap moves the game forward. Don't add scoring, "try again", or anything that marks a tap wrong.
+- **No wrong answers.** Every tile tap moves the game forward. Don't add scoring, "try again", or anything that marks a tap wrong.
 - **Toddler-proof.** The game's full-screen widget consumes every gesture (tap, hold, swipe, pan, pinch) so none reach KOReader underneath. The only way out is holding the top-left corner for 3 seconds; the start screen's Exit button then closes the game. Portrait is locked while it runs.
 - **No settings.** The mode is picked on the start screen each time. A settings key enters only when the owner has wanted to change that thing on the real device.
 - **E-ink rules.** The screen redraws only on input. No background timers, no animations. Each screen change is one full refresh so the previous colour doesn't ghost.

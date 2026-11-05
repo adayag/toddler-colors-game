@@ -22,6 +22,8 @@ Shapes mode draws in black so colour doesn't compete with shape.
 
 **Answer screen.** Any tile tap names what he tapped. There is no right or wrong: at 18 months the goal is naming things together, and a "wrong" signal would only frustrate. Any tap on the answer screen asks a new question with the tiles shuffled; the same target is never asked twice in a row.
 
+**Tap rules.** A slow press counts as a tap when the finger lifts, because a toddler's press often outlasts KOReader's 0.5 s hold threshold. A tap outside every tile on the question screen does nothing.
+
 **Exit.** Holding the top-left corner for 3 seconds returns to the start screen. No other gesture leaves the game.
 
 ### Why these choices

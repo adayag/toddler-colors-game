@@ -1,0 +1,38 @@
+describe("layout", function()
+    require("commonrequire")
+    local GameScreen = require("screen")
+
+    local rects = GameScreen.tile_rects(1264, 1680)
+
+    it("fits 600×364 tiles in two columns", function()
+        assert.same({ x = 20, y = 132, w = 600, h = 364 }, rects[1])
+        assert.same({ x = 644, y = 132, w = 600, h = 364 }, rects[2])
+        assert.same({ x = 20, y = 908, w = 600, h = 364 }, rects[5])
+    end)
+
+    it("centres the seventh tile on the last row and ends on the bottom margin", function()
+        assert.same({ x = 332, y = 1296, w = 600, h = 364 }, rects[7])
+        assert.equals(1660, rects[7].y + rects[7].h)
+    end)
+
+    it("finds the tile under a point", function()
+        assert.equals(1, GameScreen.hit(rects, 20, 132))
+        assert.equals(7, GameScreen.hit(rects, 931, 1659))
+    end)
+
+    it("finds nothing in a gap, the header or beside the seventh tile", function()
+        assert.is_nil(GameScreen.hit(rects, 632, 300))
+        assert.is_nil(GameScreen.hit(rects, 300, 508))
+        assert.is_nil(GameScreen.hit(rects, 100, 60))
+        assert.is_nil(GameScreen.hit(rects, 100, 1500))
+    end)
+
+    it("stacks the three mode buttons above a small exit", function()
+        local buttons = GameScreen.start_rects(1264, 1680)
+        assert.same({ "colors", "shapes", "both" }, { buttons[1].mode, buttons[2].mode, buttons[3].mode })
+        assert.equals(226, buttons[1].y)
+        assert.equals(986, buttons[3].y)
+        assert.is_true(buttons[4].exit)
+        assert.equals(1620, buttons[4].y + buttons[4].h)
+    end)
+end)

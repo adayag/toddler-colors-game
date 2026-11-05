@@ -17,6 +17,10 @@ describe("the game on the emulator", function()
         assert.equals("start", results.menu.state)
     end)
 
+    it("plays from Tools on KOReader's own random numbers", function()
+        assert.equals("question", results.menu.played)
+    end)
+
     for _, mode in ipairs({ "colors", "shapes", "both" }) do
         describe(mode .. " mode", function()
             it("paints the question and all 7 tiles in their colour or shape", function()
@@ -84,6 +88,11 @@ describe("the game on the emulator", function()
         assert.equals("question", results.taps.slow_press_on_answer)
     end)
 
+    it("counts a tap beside a resting finger", function()
+        assert.equals("answer", results.taps.two_finger_tap)
+        assert.equals("question", results.taps.two_finger_hold_release)
+    end)
+
     describe("the corner hold", function()
         it("does not exit at 2.9 s", function()
             assert.equals("question", results.exit.at_2_9)
@@ -136,12 +145,17 @@ describe("the game on the emulator", function()
     end)
 
     it("fits every question and answer inside the margins", function()
-        assert.is_true(results.widest_question <= 1224)
-        assert.is_true(results.widest_answer <= 1224)
+        assert.is_true(results.text_left >= 20)
+        assert.is_true(results.text_right <= 1244)
     end)
 
     it("closes from the start screen's Exit button", function()
         assert.is_true(results.exit_button.closed)
+    end)
+
+    it("does a full refresh when it opens and when it closes", function()
+        assert.equals("full", results.open_refreshes)
+        assert.equals("full", results.exit_button.refreshes)
     end)
 
     it("runs in portrait and puts the old rotation back", function()
@@ -161,6 +175,10 @@ describe("the game on the emulator", function()
 
         it("leaves KOReader's file browser on top", function()
             assert.is_true(results.failure.file_browser_on_top)
+        end)
+
+        it("stays in KOReader's file browser when opening fails", function()
+            assert.is_true(results.failure.open_kept_file_browser)
         end)
     end)
 end)

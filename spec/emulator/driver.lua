@@ -32,9 +32,9 @@ local function read_file(path)
     return text
 end
 
--- Runs the emulator in the background and kills it after TIMEOUT_S: SIGTERM alone can't stop a hung emulator, so
--- SIGKILL follows 5 s later (base/ffi/SDL3.lua:719-723). Returns the exit status. LUA_PATH and LUA_CPATH from
--- bin/check are dropped so KOReader finds the plugin the way a device does, not through the repo.
+-- Returns the exit status of the emulator run without bin/check's LUA_PATH and LUA_CPATH, so it finds the plugin the
+-- way a device does, and killed after TIMEOUT_S with SIGKILL behind SIGTERM, which a hang ignores
+-- (base/ffi/SDL3.lua:719-723).
 local function run_emulator(emulator, env, library, log)
     local script = table.concat({
         "cd " .. quote(emulator) .. " || exit 127",

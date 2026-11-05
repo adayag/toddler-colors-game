@@ -116,7 +116,7 @@ local function text(string_, font, size, color)
     return TextWidget:new{ text = string_, face = Font:getFace(font, size), fgcolor = color or Blitbuffer.COLOR_BLACK }
 end
 
--- Paints one line centred horizontally between left and left + width.
+-- Paints one line centred horizontally between left and left + width, then frees the widget.
 local function paint_line(bb, widget, left, width, y)
     widget:paintTo(bb, left + math.floor((width - widget:getWidth()) / 2), y)
     widget:free()
@@ -132,29 +132,6 @@ local function parts_width(parts)
     local width = 0
     for _, part in ipairs(parts) do
         width = width + part:getWidth()
-    end
-    return width
-end
-
-local function answer_face(tile)
-    return tile.shape and ANSWER_FACE or COLOR_ANSWER_FACE
-end
-
-function GameScreen.question_width(target)
-    local parts = question_parts(target)
-    local width = parts_width(parts)
-    for _, part in ipairs(parts) do
-        part:free()
-    end
-    return width
-end
-
-function GameScreen.answer_width(tile)
-    local width = 0
-    for _, line in ipairs(Game.answer(tile)) do
-        local widget = text(line, "tfont", answer_face(tile))
-        width = math.max(width, widget:getWidth())
-        widget:free()
     end
     return width
 end
@@ -292,7 +269,7 @@ function GameScreen:is_exit(hold, release)
 end
 
 function GameScreen:handle(ev)
-    if ev.ges == "tap" then
+    if ev.ges == "tap" or ev.ges == "two_finger_tap" or ev.ges == "two_finger_hold_release" then
         self:press(ev.pos)
     elseif ev.ges == "hold" then
         self.hold = ev

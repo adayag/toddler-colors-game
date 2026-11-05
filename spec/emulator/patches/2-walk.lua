@@ -2,8 +2,8 @@
 -- spec/emulator/driver.lua. Plays through the game by sending gestures to UIManager, the way the input loop does,
 -- wrapping TextWidget:paintTo (frontend/ui/widget/textwidget.lua:338), UIManager:_refresh
 -- (frontend/ui/uimanager.lua:1200) and UIManager:scheduleIn (:413) to see what each screen drew and queued, and
--- counting the file manager's Screenshoter gestures to catch a leak. Writes what it saw to results.json plus one PNG
--- per screen, then quits. Any error lands in results.error.
+-- counting the file manager's Screenshoter gestures to catch a leak. Writes what it saw, and any error in
+-- results.error, to results.json, shoots one PNG per screen, then quits.
 local dir = os.getenv("TODDLER_WALK_DIR")
 if not dir then
     return
@@ -85,14 +85,6 @@ local function tools_entry()
     end
 end
 
-local function size_w()
-    return Screen:getWidth()
-end
-
-local function size_h()
-    return Screen:getHeight()
-end
-
 local function all_true(list)
     for _, value in ipairs(list) do
         if not value then
@@ -102,7 +94,7 @@ local function all_true(list)
     return #list == 7
 end
 
--- What the plugin drew since the last clear_drawn; nil outside play, which leaves the spy inert.
+-- What the plugin drew since the last clear_drawn; nil leaves the spy inert.
 local drawn
 
 local function clear_drawn()
@@ -124,9 +116,13 @@ local function spy_on_drawing()
     local Shapes = require("shapes")
     local paint_text, render = TextWidget.paintTo, Shapes.render
     local refresh, schedule_in = UIManager._refresh, UIManager.scheduleIn
-    TextWidget.paintTo = function(widget, ...)
+    TextWidget.paintTo = function(widget, bb, x, y)
         note("text", widget.text)
-        return paint_text(widget, ...)
+        if drawn then
+            drawn.left = math.min(drawn.left or x, x)
+            drawn.right = math.max(drawn.right or 0, x + widget:getWidth())
+        end
+        return paint_text(widget, bb, x, y)
     end
     Shapes.render = function(shape, color, size)
         note("shapes", shape_key(color, shape))
@@ -163,7 +159,7 @@ local function play(game, index, mode)
     end
     seen.tile_shapes_expected = table.concat(tile_shapes, ",")
     seen.question_state = game.state
-    seen.question_text = holds({ x = 0, y = 28, w = size_w(), h = 80 }, "#000000")
+    seen.question_text = holds({ x = 0, y = 28, w = Screen:getWidth(), h = 80 }, "#000000")
     local tiles = {}
     for i, rect in ipairs(game.rects) do
         local tile = game.round.tiles[i]
@@ -182,14 +178,14 @@ local function play(game, index, mode)
     seen.answer_shape = table.concat(drawn.shapes, ",")
     seen.answer_shape_expected = tapped.shape and shape_key(tapped.color, tapped.shape) or ""
     seen.answer_state = game.state
-    local whole = { x = 0, y = 0, w = size_w(), h = size_h() }
+    local whole = { x = 0, y = 0, w = Screen:getWidth(), h = Screen:getHeight() }
     seen.answer_painted = holds(whole, tapped.color and Shapes.hex(tapped.color) or "#000000")
     seen.answer_fills = mode == "colors" and pixel(10, 10) == Shapes.hex(tapped.color)
     if mode == "colors" then
         local ink = Shapes.is_dark(tapped.color) and "#FFFFFF" or "#000000"
-        seen.answer_text = holds({ x = 0, y = 755, w = size_w(), h = 170 }, ink)
+        seen.answer_text = holds({ x = 0, y = 755, w = Screen:getWidth(), h = 170 }, ink)
     else
-        seen.answer_text = holds({ x = 0, y = 1420, w = size_w(), h = 150 }, "#000000")
+        seen.answer_text = holds({ x = 0, y = 1420, w = Screen:getWidth(), h = 150 }, "#000000")
     end
 
     clear_drawn()
@@ -206,7 +202,7 @@ local function ink_on(game, color)
     game.tapped = { color = color }
     game:go("answer")
     UIManager:forceRePaint()
-    local band = { x = 0, y = 755, w = size_w(), h = 170 }
+    local band = { x = 0, y = 755, w = Screen:getWidth(), h = 170 }
     return { white = holds(band, "#FFFFFF"), black = holds(band, "#000000") }
 end
 
@@ -259,15 +255,16 @@ local screenshot_stamp = 0
 -- (frontend/ui/gesturerange.lua:42-52), which would hide a leak.
 local function screenshot_gestures()
     local before = screenshots
-    local diagonal = math.floor(math.sqrt(size_w() ^ 2 + size_h() ^ 2))
+    local diagonal = math.floor(math.sqrt(Screen:getWidth() ^ 2 + Screen:getHeight() ^ 2))
     screenshot_stamp = screenshot_stamp + time.s(2)
     local at = time.now() + screenshot_stamp
     -- Diagonal and below the menu zone, so the file chooser and the menu leave it alone
-    -- (frontend/ui/widget/menu.lua:1535, frontend/apps/filemanager/filemanagermenu.lua:99-122).
+    -- (frontend/ui/widget/menu.lua:1535, frontend/apps/filemanager/filemanagermenu.lua:99-122). The tap lands off every
+    -- button and tile, since the game counts a two-finger tap as a press.
     gesture("swipe", 10, 1670, at, {
         direction = "northeast", multiswipe_directions = "northeast", distance = diagonal,
     })
-    gesture("two_finger_tap", 632, 840, at, { span = diagonal })
+    gesture("two_finger_tap", 632, 590, at, { span = diagonal })
     return screenshots - before
 end
 
@@ -278,6 +275,119 @@ local function on_next_tick(step)
         if not ok then
             finish(tostring(err))
         end
+    end)
+end
+
+-- Paints every question, over plain colour tiles so no SVGs render, and every answer, recording how far the text
+-- reached.
+local function measure_text(game)
+    local Game = require("game")
+    local plain, every = {}, {}
+    for i, color in ipairs(Game.COLORS) do
+        plain[i] = { color = color }
+        table.insert(every, plain[i])
+        for _, shape in ipairs(Game.SHAPES) do
+            table.insert(every, { color = color, shape = shape })
+        end
+    end
+    for _, shape in ipairs(Game.SHAPES) do
+        table.insert(every, { shape = shape })
+    end
+    clear_drawn()
+    for _, tile in ipairs(every) do
+        game.round = { target = tile, tiles = plain }
+        game:go("question")
+        UIManager:forceRePaint()
+        game.tapped = tile
+        game:go("answer")
+        UIManager:forceRePaint()
+    end
+    results.text_left, results.text_right = drawn.left, drawn.right
+    drawn = nil
+    game:go("start")
+    UIManager:forceRePaint()
+end
+
+-- The walk from the lone release on, a tick later so that a close the release queued has happened.
+local function after_lone_release(game, t1)
+    results.exit.release_without_hold = UIManager:isWidgetShown(game) and game.state or "closed"
+    gesture("hold", 50, 50, t1)
+    gesture("hold_release", 400, 400, t1 + time.s(3))
+    UIManager:forceRePaint()
+    results.exit.drifted = game.state
+    clear_drawn()
+    hold(50, 50, t1, time.s(3))
+    results.exit.on_start = game.state
+    results.exit.on_start_refreshes = table.concat(drawn.refreshes, ",")
+    drawn = nil
+
+    local depth = stack_size()
+    send_all(632, 20)
+    send_all(10, 1670)
+    results.leak.start_kept = stack_size() == depth and UIManager:getNthTopWidget(1) == game
+    results.leak.screenshot_on_start = screenshot_gestures() > 0
+    tap(game.buttons[1])
+    send_all(632, 20)
+    send_all(10, 1670)
+    results.leak.game_kept = stack_size() == depth and UIManager:getNthTopWidget(1) == game
+    results.leak.screenshot_on_question = screenshot_gestures() > 0
+    hold(50, 50, time.now(), time.s(3))
+
+    measure_text(game)
+
+    clear_drawn()
+    tap(game.buttons[4])
+    results.exit_button = {
+        closed = not UIManager:isWidgetShown(game),
+        refreshes = table.concat(drawn.refreshes, ","),
+    }
+    drawn = nil
+
+    UIManager:broadcastEvent(Event:new("SetRotationMode", Screen.DEVICE_ROTATED_CLOCKWISE))
+    local landscape = open_game()
+    UIManager:forceRePaint()
+    results.rotation = { during = Screen:getRotationMode(), width = Screen:getWidth() }
+    gesture("tap", landscape.buttons[4].x + 10, landscape.buttons[4].y + 10)
+    UIManager:forceRePaint()
+    results.rotation.after = Screen:getRotationMode()
+    UIManager:broadcastEvent(Event:new("SetRotationMode", Screen.DEVICE_ROTATED_UPRIGHT))
+    UIManager:forceRePaint()
+
+    local Shapes = require("shapes")
+    local render = Shapes.render
+    clear_drawn()
+    local painting = open_game()
+    UIManager:forceRePaint()
+    results.open_refreshes = table.concat(drawn.refreshes, ",")
+    drawn = nil
+    Shapes.render = function()
+        error("walk: render failed")
+    end
+    tap(painting.buttons[2])
+    Shapes.render = render
+    on_next_tick(function()
+        results.failure = { paint_closed = not UIManager:isWidgetShown(painting) }
+        local Game = require("game")
+        local round = Game.round
+        local tapping = open_game()
+        Game.round = function()
+            error("walk: round failed")
+        end
+        tap(tapping.buttons[1])
+        Game.round = round
+        on_next_tick(function()
+            local file_browser = require("apps/filemanager/filemanager").instance
+            results.failure.gesture_closed = not UIManager:isWidgetShown(tapping)
+            results.failure.file_browser_on_top = UIManager:getNthTopWidget(1) == file_browser
+            local GameScreen = require("screen")
+            local init = GameScreen.init
+            GameScreen.init = function()
+                error("walk: open failed")
+            end
+            results.failure.open_kept_file_browser = open_game() == file_browser
+            GameScreen.init = init
+            finish()
+        end)
     end)
 end
 
@@ -294,6 +404,8 @@ local function walk()
     entry.callback()
     local game = UIManager:getNthTopWidget(1)
     results.menu = { state = game.state }
+    tap(game.buttons[1])
+    results.menu.played = game.state
     game:shutdown()
     Screen.bb:paintRect(0, 0, 10, 10, require("ffi/blitbuffer").COLOR_BLACK)
     game = open_game()
@@ -324,6 +436,12 @@ local function walk()
     gesture("hold_release", 300, 300, t0 + time.s(1))
     UIManager:forceRePaint()
     results.taps.slow_press_on_answer = game.state
+    gesture("two_finger_tap", 300, 300)
+    UIManager:forceRePaint()
+    results.taps.two_finger_tap = game.state
+    gesture("two_finger_hold_release", 300, 300)
+    UIManager:forceRePaint()
+    results.taps.two_finger_hold_release = game.state
     hold(50, 50, time.now(), time.s(3))
     spy_on_drawing()
     results.colors = play(game, 1, "colors")
@@ -349,83 +467,11 @@ local function walk()
     results.exit.outside_corner = game.state
     hold(50, game.rects[3].y - 1, t1, time.s(3))
     results.exit.below_corner = game.state
-    gesture("hold_release", 50, 50, t1 + time.s(3))
+    hold(50, 50, t1, time.s(2.9))
+    gesture("hold_release", 300, 300, t1 + time.s(3))
     UIManager:forceRePaint()
-    results.exit.release_without_hold = game.state
-    gesture("hold", 50, 50, t1)
-    gesture("hold_release", 400, 400, t1 + time.s(3))
-    UIManager:forceRePaint()
-    results.exit.drifted = game.state
-    clear_drawn()
-    hold(50, 50, t1, time.s(3))
-    results.exit.on_start = game.state
-    results.exit.on_start_refreshes = table.concat(drawn.refreshes, ",")
-    drawn = nil
-
-    local depth = stack_size()
-    send_all(632, 20)
-    send_all(10, 1670)
-    results.leak.start_kept = stack_size() == depth and UIManager:getNthTopWidget(1) == game
-    results.leak.screenshot_on_start = screenshot_gestures() > 0
-    tap(game.buttons[1])
-    send_all(632, 20)
-    send_all(10, 1670)
-    results.leak.game_kept = stack_size() == depth and UIManager:getNthTopWidget(1) == game
-    results.leak.screenshot_on_question = screenshot_gestures() > 0
-    hold(50, 50, time.now(), time.s(3))
-
-    local GameScreen = require("screen")
-    local Game = require("game")
-    results.widest_question, results.widest_answer = 0, 0
-    local function measure(tile)
-        results.widest_question = math.max(results.widest_question, GameScreen.question_width(tile))
-        results.widest_answer = math.max(results.widest_answer, GameScreen.answer_width(tile))
-    end
-    for _, color in ipairs(Game.COLORS) do
-        measure({ color = color })
-        for _, shape in ipairs(Game.SHAPES) do
-            measure({ color = color, shape = shape })
-        end
-    end
-    for _, shape in ipairs(Game.SHAPES) do
-        measure({ shape = shape })
-    end
-
-    tap(game.buttons[4])
-    results.exit_button = { closed = not UIManager:isWidgetShown(game) }
-
-    UIManager:broadcastEvent(Event:new("SetRotationMode", Screen.DEVICE_ROTATED_CLOCKWISE))
-    local landscape = open_game()
-    UIManager:forceRePaint()
-    results.rotation = { during = Screen:getRotationMode(), width = Screen:getWidth() }
-    gesture("tap", landscape.buttons[4].x + 10, landscape.buttons[4].y + 10)
-    UIManager:forceRePaint()
-    results.rotation.after = Screen:getRotationMode()
-    UIManager:broadcastEvent(Event:new("SetRotationMode", Screen.DEVICE_ROTATED_UPRIGHT))
-
-    local Shapes = require("shapes")
-    local render = Shapes.render
-    local painting = open_game()
-    Shapes.render = function()
-        error("walk: render failed")
-    end
-    tap(painting.buttons[2])
-    Shapes.render = render
     on_next_tick(function()
-        results.failure = { paint_closed = not UIManager:isWidgetShown(painting) }
-        local round = Game.round
-        local tapping = open_game()
-        Game.round = function()
-            error("walk: round failed")
-        end
-        tap(tapping.buttons[1])
-        Game.round = round
-        on_next_tick(function()
-            results.failure.gesture_closed = not UIManager:isWidgetShown(tapping)
-            results.failure.file_browser_on_top =
-                UIManager:getNthTopWidget(1) == require("apps/filemanager/filemanager").instance
-            finish()
-        end)
+        after_lone_release(game, t1)
     end)
 end
 

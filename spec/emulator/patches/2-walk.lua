@@ -209,6 +209,13 @@ local function ink_on(game, color)
     return { white = holds(band, "#FFFFFF"), black = holds(band, "#000000") }
 end
 
+-- Holds a point from at to at + gap, in the same units as the gesture timestamps.
+local function hold(x, y, at, gap)
+    gesture("hold", x, y, at)
+    gesture("hold_release", x, y, at + gap)
+    UIManager:forceRePaint()
+end
+
 local function walk()
     local size = Screen:getSize()
     local buttons = require("screen").start_rects(size.w, size.h)
@@ -246,18 +253,43 @@ local function walk()
     gesture("hold_release", 300, 300, t0 + time.s(1))
     UIManager:forceRePaint()
     results.taps.slow_press_on_answer = game.state
-    game.state = "start"
+    hold(50, 50, time.now(), time.s(3))
     spy_on_drawing()
     results.colors = play(game, 1, "colors")
     results.ink = {}
     for _, color in ipairs(require("game").COLORS) do
         results.ink[color] = ink_on(game, color)
     end
-    game.state = "start"
+    hold(50, 50, time.now(), time.s(3))
     results.shapes = play(game, 2, "shapes")
-    game.state = "start"
+    hold(50, 50, time.now(), time.s(3))
     results.both = play(game, 3, "both")
-    game.state = "start"
+    hold(50, 50, time.now(), time.s(3))
+
+    results.exit = {}
+    tap(game.buttons[1])
+    local t1 = time.now()
+    hold(50, 50, t1, time.s(2.9))
+    results.exit.at_2_9 = game.state
+    hold(50, 50, t1, time.s(3))
+    results.exit.at_3_0 = game.state
+    tap(game.buttons[1])
+    hold(700, 50, t1, time.s(3))
+    results.exit.outside_corner = game.state
+    hold(50, game.rects[3].y - 1, t1, time.s(3))
+    results.exit.below_corner = game.state
+    gesture("hold_release", 50, 50, t1 + time.s(3))
+    UIManager:forceRePaint()
+    results.exit.release_without_hold = game.state
+    gesture("hold", 50, 50, t1)
+    gesture("hold_release", 400, 400, t1 + time.s(3))
+    UIManager:forceRePaint()
+    results.exit.drifted = game.state
+    clear_drawn()
+    hold(50, 50, t1, time.s(3))
+    results.exit.on_start = game.state
+    results.exit.on_start_refreshes = table.concat(drawn.refreshes, ",")
+    drawn = nil
 
     local GameScreen = require("screen")
     local Game = require("game")

@@ -84,6 +84,34 @@ describe("the game on the emulator", function()
         assert.equals("question", results.taps.slow_press_on_answer)
     end)
 
+    describe("the corner hold", function()
+        it("does not exit at 2.9 s", function()
+            assert.equals("question", results.exit.at_2_9)
+        end)
+
+        it("returns to the start screen at 3.0 s", function()
+            assert.equals("start", results.exit.at_3_0)
+        end)
+
+        it("does not exit from elsewhere on the screen", function()
+            assert.equals("question", results.exit.outside_corner)
+            assert.equals("question", results.exit.below_corner)
+        end)
+
+        it("ignores a release with no hold before it", function()
+            assert.equals("question", results.exit.release_without_hold)
+        end)
+
+        it("exits when a held finger drifts out of the corner", function()
+            assert.equals("start", results.exit.drifted)
+        end)
+
+        it("does nothing on the start screen", function()
+            assert.equals("start", results.exit.on_start)
+            assert.equals("", results.exit.on_start_refreshes)
+        end)
+    end)
+
     it("fits every question and answer inside the margins", function()
         assert.is_true(results.widest_question <= 1224)
         assert.is_true(results.widest_answer <= 1224)

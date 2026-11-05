@@ -11,6 +11,7 @@ local Shapes = require("shapes")
 local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
 local logger = require("logger")
+local time = require("ui/time")
 local Screen = Device.screen
 
 local MARGIN = 20
@@ -22,6 +23,8 @@ local BUTTON_GAP = 40
 local EDGE = 60
 local EXIT_W = 200
 local EXIT_H = 88
+local EXIT_HOLD_S = 3
+local CORNER = 200
 
 local GameScreen = InputContainer:extend{
     name = "toddler_colors_game",
@@ -272,14 +275,24 @@ function GameScreen:press(pos)
     end
 end
 
+function GameScreen:is_exit(hold, release)
+    return self.state ~= "start" and hold.pos.x < CORNER and hold.pos.y < CORNER
+        and release.time - hold.time >= time.s(EXIT_HOLD_S)
+end
+
 function GameScreen:handle(ev)
     if ev.ges == "tap" then
         self:press(ev.pos)
     elseif ev.ges == "hold" then
         self.hold = ev
     elseif ev.ges == "hold_release" and self.hold then
+        local hold = self.hold
         self.hold = nil
-        self:press(ev.pos)
+        if self:is_exit(hold, ev) then
+            self:go("start")
+        else
+            self:press(ev.pos)
+        end
     end
 end
 

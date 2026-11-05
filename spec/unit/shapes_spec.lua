@@ -37,6 +37,12 @@ describe("shapes", function()
         end
     end)
 
+    it("owns its pixels, so free() releases them", function()
+        local bb = Shapes.render("circle", "blue", 290)
+        assert.equals(1, bb:getAllocated())
+        bb:free()
+    end)
+
     it("outlines a coloured shape in black", function()
         assert.truthy(Shapes.svg("circle", "blue", 290):find('stroke="#000000"', 1, true))
         assert.is_nil(Shapes.svg("circle", nil, 290):find("stroke", 1, true))

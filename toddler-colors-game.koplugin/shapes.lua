@@ -1,6 +1,8 @@
 -- The seven shapes as SVG templates and the seven colours. Renders through
 -- RenderImage:renderSVGImageDataWithCRengine (frontend/ui/renderimage.lua:104), which ignores the requested size
--- unless the SVG states it, and returns an opaque buffer on white.
+-- unless the SVG states it, and returns an opaque buffer on white. It hands over a malloc'ed buffer it doesn't mark as
+-- owned (frontend/ui/renderimage.lua:111), so free() would release nothing (base/ffi/blitbuffer.lua:1472) until
+-- setAllocated (:699).
 local RenderImage = require("ui/renderimage")
 
 local Shapes = {}
@@ -52,7 +54,9 @@ end
 
 function Shapes.render(shape, color, size)
     local svg = Shapes.svg(shape, color, size)
-    return assert(RenderImage:renderSVGImageDataWithCRengine(svg, #svg, size, size))
+    local image = assert(RenderImage:renderSVGImageDataWithCRengine(svg, #svg, size, size))
+    image:setAllocated(1)
+    return image
 end
 
 return Shapes

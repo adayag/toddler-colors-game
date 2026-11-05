@@ -1,6 +1,8 @@
 -- KOReader userpatch (late priority, frontend/userpatch.lua:13) copied into a scratch profile by
 -- spec/emulator/driver.lua. Plays through the game by sending gestures to UIManager, the way the input loop does,
--- and writes what it saw to results.json plus one PNG per screen, then quits. Any error lands in results.error.
+-- wrapping TextWidget:paintTo (frontend/ui/widget/textwidget.lua:338) and UIManager:_refresh
+-- (frontend/ui/uimanager.lua:1200) to see what each screen drew, and writes what it saw to results.json plus one PNG
+-- per screen, then quits. Any error lands in results.error.
 local dir = os.getenv("TODDLER_WALK_DIR")
 if not dir then
     return
@@ -39,7 +41,6 @@ local function gesture(ges, x, y, at, extra)
     UIManager:sendEvent(Event:new("Gesture", fields))
 end
 
--- luacheck: ignore tap
 local function tap(rect)
     gesture("tap", rect.x + math.floor(rect.w / 2), rect.y + math.floor(rect.h / 2))
     UIManager:forceRePaint()
@@ -83,6 +84,126 @@ local function tools_entry()
     end
 end
 
+local function size_w()
+    return Screen:getWidth()
+end
+
+local function size_h()
+    return Screen:getHeight()
+end
+
+local function all_true(list)
+    for _, value in ipairs(list) do
+        if not value then
+            return false
+        end
+    end
+    return #list == 7
+end
+
+-- What the plugin drew since the last clear_drawn; nil outside play, which leaves the spy inert.
+local drawn
+
+local function clear_drawn()
+    drawn = { text = {}, shapes = {}, refreshes = {} }
+end
+
+local function note(kind, value)
+    if drawn then
+        table.insert(drawn[kind], value)
+    end
+end
+
+local function shape_key(color, shape)
+    return tostring(color) .. " " .. shape
+end
+
+local function spy_on_drawing()
+    local TextWidget = require("ui/widget/textwidget")
+    local Shapes = require("shapes")
+    local paint_text, render, refresh = TextWidget.paintTo, Shapes.render, UIManager._refresh
+    TextWidget.paintTo = function(widget, ...)
+        note("text", widget.text)
+        return paint_text(widget, ...)
+    end
+    Shapes.render = function(shape, color, size)
+        note("shapes", shape_key(color, shape))
+        return render(shape, color, size)
+    end
+    UIManager._refresh = function(manager, mode, ...)
+        note("refreshes", mode)
+        return refresh(manager, mode, ...)
+    end
+end
+
+-- From the start screen: picks a mode, shoots the question, taps tile 2, shoots the answer, taps once more, and
+-- leaves the game on a fresh question. Returns what each screen showed.
+local function play(game, index, mode)
+    local Game = require("game")
+    local Shapes = require("shapes")
+    local seen = {}
+    clear_drawn()
+    tap(game.buttons[index])
+    shoot(mode .. "-question")
+    seen.question_refreshes = table.concat(drawn.refreshes, ",")
+    seen.question_words = table.concat(drawn.text)
+    seen.question_expected = table.concat({ Game.question(game.round.target) })
+    seen.tile_shapes = table.concat(drawn.shapes, ",")
+    local tile_shapes = {}
+    for _, tile in ipairs(game.round.tiles) do
+        if tile.shape then
+            table.insert(tile_shapes, shape_key(tile.color, tile.shape))
+        end
+    end
+    seen.tile_shapes_expected = table.concat(tile_shapes, ",")
+    seen.question_state = game.state
+    seen.question_text = holds({ x = 0, y = 28, w = size_w(), h = 80 }, "#000000")
+    local tiles = {}
+    for i, rect in ipairs(game.rects) do
+        local tile = game.round.tiles[i]
+        tiles[i] = holds(rect, tile.color and Shapes.hex(tile.color) or "#000000")
+    end
+    seen.tiles_painted = all_true(tiles)
+    seen.previous_target = game.round.target.color or game.round.target.shape
+
+    local tapped = game.round.tiles[2]
+    clear_drawn()
+    tap(game.rects[2])
+    shoot(mode .. "-answer")
+    seen.answer_refreshes = table.concat(drawn.refreshes, ",")
+    seen.answer_words = table.concat(drawn.text, " ")
+    seen.answer_expected = table.concat(Game.answer(tapped), " ")
+    seen.answer_shape = table.concat(drawn.shapes, ",")
+    seen.answer_shape_expected = tapped.shape and shape_key(tapped.color, tapped.shape) or ""
+    seen.answer_state = game.state
+    local whole = { x = 0, y = 0, w = size_w(), h = size_h() }
+    seen.answer_painted = holds(whole, tapped.color and Shapes.hex(tapped.color) or "#000000")
+    seen.answer_fills = mode == "colors" and pixel(10, 10) == Shapes.hex(tapped.color)
+    if mode == "colors" then
+        local ink = Shapes.is_dark(tapped.color) and "#FFFFFF" or "#000000"
+        seen.answer_text = holds({ x = 0, y = 755, w = size_w(), h = 170 }, ink)
+    else
+        seen.answer_text = holds({ x = 0, y = 1420, w = size_w(), h = 150 }, "#000000")
+    end
+
+    clear_drawn()
+    tap(whole)
+    seen.next_refreshes = table.concat(drawn.refreshes, ",")
+    drawn = nil
+    seen.next_state = game.state
+    seen.next_target = game.round.target.color or game.round.target.shape
+    return seen
+end
+
+-- Paints a forced answer in a colour and reports which ink appears in the text band.
+local function ink_on(game, color)
+    game.tapped = { color = color }
+    game:go("answer")
+    UIManager:forceRePaint()
+    local band = { x = 0, y = 755, w = size_w(), h = 170 }
+    return { white = holds(band, "#FFFFFF"), black = holds(band, "#000000") }
+end
+
 local function walk()
     local size = Screen:getSize()
     local buttons = require("screen").start_rects(size.w, size.h)
@@ -100,6 +221,34 @@ local function walk()
         background = pixel(5, 5),
         exit_label = holds(buttons[4], "#000000"),
     }
+    spy_on_drawing()
+    results.colors = play(game, 1, "colors")
+    results.ink = {}
+    for _, color in ipairs(require("game").COLORS) do
+        results.ink[color] = ink_on(game, color)
+    end
+    game.state = "start"
+    results.shapes = play(game, 2, "shapes")
+    game.state = "start"
+    results.both = play(game, 3, "both")
+    game.state = "start"
+
+    local GameScreen = require("screen")
+    local Game = require("game")
+    results.widest_question, results.widest_answer = 0, 0
+    local function measure(tile)
+        results.widest_question = math.max(results.widest_question, GameScreen.question_width(tile))
+        results.widest_answer = math.max(results.widest_answer, GameScreen.answer_width(tile))
+    end
+    for _, color in ipairs(Game.COLORS) do
+        measure({ color = color })
+        for _, shape in ipairs(Game.SHAPES) do
+            measure({ color = color, shape = shape })
+        end
+    end
+    for _, shape in ipairs(Game.SHAPES) do
+        measure({ shape = shape })
+    end
     finish()
 end
 

@@ -1,8 +1,9 @@
 -- KOReader userpatch (late priority, frontend/userpatch.lua:13) copied into a scratch profile by
 -- spec/emulator/driver.lua. Plays through the game by sending gestures to UIManager, the way the input loop does,
 -- wrapping TextWidget:paintTo (frontend/ui/widget/textwidget.lua:338), UIManager:_refresh
--- (frontend/ui/uimanager.lua:1200) and UIManager:scheduleIn (:413) to see what each screen drew and queued, and writes
--- what it saw to results.json plus one PNG per screen, then quits. Any error lands in results.error.
+-- (frontend/ui/uimanager.lua:1200) and UIManager:scheduleIn (:413) to see what each screen drew and queued, and
+-- counting the file manager's Screenshoter gestures to catch a leak. Writes what it saw to results.json plus one PNG
+-- per screen, then quits. Any error lands in results.error.
 local dir = os.getenv("TODDLER_WALK_DIR")
 if not dir then
     return
@@ -216,7 +217,67 @@ local function hold(x, y, at, gap)
     UIManager:forceRePaint()
 end
 
+local LEAK_GESTURES = {
+    "tap", "double_tap", "two_finger_tap", "touch", "swipe", "two_finger_swipe", "multiswipe", "pan", "pan_release",
+    "two_finger_pan", "hold", "hold_pan", "hold_release", "two_finger_hold", "two_finger_hold_release", "pinch",
+    "spread", "inward_pan", "outward_pan", "rotate",
+}
+
+local function stack_size()
+    local count = 0
+    for _ in UIManager:topdown_widgets_iter() do
+        count = count + 1
+    end
+    return count
+end
+
+local function send_all(x, y)
+    for _, ges in ipairs(LEAK_GESTURES) do
+        gesture(ges, x, y, nil, {
+            direction = "south", multiswipe_directions = "south", distance = 300, span = 300, angle = 90,
+        })
+    end
+end
+
+local screenshots = 0
+
+-- Swaps the handlers the Screenshoter's gestures fire, which hold onScreenshot by value
+-- (frontend/ui/widget/screenshoter.lua:139-140), for a counter, so no file or dialog appears.
+local function spy_on_screenshot()
+    local function count()
+        screenshots = screenshots + 1
+        return true
+    end
+    local module = require("apps/filemanager/filemanager").instance.screenshot
+    module.onSwipeDiagonal, module.onTapDiagonal = count, count
+end
+
+local screenshot_stamp = 0
+
+-- Sends a full-diagonal swipe and two-finger tap and returns how many reached the Screenshoter, stamped ahead of every
+-- earlier send because any gesture of a type, however short, spends its one match a second
+-- (frontend/ui/gesturerange.lua:42-52), which would hide a leak.
+local function screenshot_gestures()
+    local before = screenshots
+    local diagonal = math.floor(math.sqrt(size_w() ^ 2 + size_h() ^ 2))
+    screenshot_stamp = screenshot_stamp + time.s(2)
+    local at = time.now() + screenshot_stamp
+    -- Diagonal and below the menu zone, so the file chooser and the menu leave it alone
+    -- (frontend/ui/widget/menu.lua:1535, frontend/apps/filemanager/filemanagermenu.lua:99-122).
+    gesture("swipe", 10, 1670, at, {
+        direction = "northeast", multiswipe_directions = "northeast", distance = diagonal,
+    })
+    gesture("two_finger_tap", 632, 840, at, { span = diagonal })
+    return screenshots - before
+end
+
 local function walk()
+    spy_on_screenshot()
+    local before = stack_size()
+    gesture("tap", 632, 20)
+    results.leak = { control_opened_menu = stack_size() > before }
+    UIManager:close(UIManager:getNthTopWidget(1))
+    results.leak.screenshot_control = screenshot_gestures() == 2
     local size = Screen:getSize()
     local buttons = require("screen").start_rects(size.w, size.h)
     local entry = assert(tools_entry(), "no Toddler Colors Game entry in Tools")
@@ -290,6 +351,18 @@ local function walk()
     results.exit.on_start = game.state
     results.exit.on_start_refreshes = table.concat(drawn.refreshes, ",")
     drawn = nil
+
+    local depth = stack_size()
+    send_all(632, 20)
+    send_all(10, 1670)
+    results.leak.start_kept = stack_size() == depth and UIManager:getNthTopWidget(1) == game
+    results.leak.screenshot_on_start = screenshot_gestures() > 0
+    tap(game.buttons[1])
+    send_all(632, 20)
+    send_all(10, 1670)
+    results.leak.game_kept = stack_size() == depth and UIManager:getNthTopWidget(1) == game
+    results.leak.screenshot_on_question = screenshot_gestures() > 0
+    hold(50, 50, time.now(), time.s(3))
 
     local GameScreen = require("screen")
     local Game = require("game")

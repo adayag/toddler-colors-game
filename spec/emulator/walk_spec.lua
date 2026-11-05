@@ -112,6 +112,29 @@ describe("the game on the emulator", function()
         end)
     end)
 
+    describe("gestures", function()
+        it("open KOReader's menu when the game isn't showing", function()
+            assert.is_true(results.leak.control_opened_menu)
+        end)
+
+        it("stay in the game on the start screen", function()
+            assert.is_true(results.leak.start_kept)
+        end)
+
+        it("stay in the game on the question screen", function()
+            assert.is_true(results.leak.game_kept)
+        end)
+
+        it("reach the screenshot gesture when the game isn't showing, so the next test can fail", function()
+            assert.is_true(results.leak.screenshot_control)
+        end)
+
+        it("never reach KOReader's screenshot gesture from the game", function()
+            assert.is_false(results.leak.screenshot_on_start)
+            assert.is_false(results.leak.screenshot_on_question)
+        end)
+    end)
+
     it("fits every question and answer inside the margins", function()
         assert.is_true(results.widest_question <= 1224)
         assert.is_true(results.widest_answer <= 1224)

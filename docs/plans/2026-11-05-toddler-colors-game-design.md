@@ -10,7 +10,7 @@ A game on the owner's Kindle Colorsoft for their 18-month-old son, to learn colo
 
 **Start screen (for the parent).** Three big buttons, **Colors**, **Shapes**, **Both**, and a small **Exit** that returns to KOReader.
 
-**Question screen.** A question at the top in large text (about 120 px) and 7 big tiles below in a 2-column grid (about 600×380 px each).
+**Question screen.** A one-line question at the top (72 px) and 7 big tiles below in a 2-column grid (600×364 px each), with the seventh tile centred on the last row.
 
 | Mode | Tiles | Question | Answer screen |
 |---|---|---|---|
@@ -27,6 +27,8 @@ Shapes mode draws in black so colour doesn't compete with shape.
 ### Why these choices
 
 - *7 tiles, not 2–4:* the owner's call. At 1264×1680 a 2×4 grid still gives toddler-sized targets.
+- *One-line 72 px question, not 120 px:* 120 px text and 380 px rows don't fit in 1680 px. The parent reads the question aloud, so the height goes to the tiles. The longest question ("Which one is the orange diamond?") measures about 1202 px at 72 px against 1224 px available, from the advance widths in `koreader/resources/fonts/noto/NotoSans-Regular.ttf` and `NotoSans-Bold.ttf`, kerning not counted.
+- *Seventh tile centred, not wide:* a wide tile would be the biggest target, and which colour or shape gets it would change with every shuffle.
 - *Any tap names it (exploring), then a new question:* every tap moves the game forward, so he never gets stuck on a question he can't answer yet.
 - *3-second corner hold:* hard for a toddler to trigger by accident, quick for a parent. Two-finger long press was rejected (a palm can trigger it); power-button-only was rejected (relaunching every time).
 

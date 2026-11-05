@@ -275,6 +275,11 @@ end
 function GameScreen:handle(ev)
     if ev.ges == "tap" then
         self:press(ev.pos)
+    elseif ev.ges == "hold" then
+        self.hold = ev
+    elseif ev.ges == "hold_release" and self.hold then
+        self.hold = nil
+        self:press(ev.pos)
     end
 end
 

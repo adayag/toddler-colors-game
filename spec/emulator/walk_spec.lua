@@ -73,6 +73,17 @@ describe("the game on the emulator", function()
         end
     end)
 
+    it("does nothing for a tap outside every tile", function()
+        assert.equals("question", results.taps.gap)
+        assert.equals("question", results.taps.beside_seventh)
+        assert.equals("question", results.taps.header)
+    end)
+
+    it("counts a slow press as a tap when the finger lifts", function()
+        assert.equals("answer", results.taps.slow_press)
+        assert.equals("question", results.taps.slow_press_on_answer)
+    end)
+
     it("fits every question and answer inside the margins", function()
         assert.is_true(results.widest_question <= 1224)
         assert.is_true(results.widest_answer <= 1224)

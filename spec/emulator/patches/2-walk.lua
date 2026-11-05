@@ -1,8 +1,8 @@
 -- KOReader userpatch (late priority, frontend/userpatch.lua:13) copied into a scratch profile by
 -- spec/emulator/driver.lua. Plays through the game by sending gestures to UIManager, the way the input loop does,
--- wrapping TextWidget:paintTo (frontend/ui/widget/textwidget.lua:338) and UIManager:_refresh
--- (frontend/ui/uimanager.lua:1200) to see what each screen drew, and writes what it saw to results.json plus one PNG
--- per screen, then quits. Any error lands in results.error.
+-- wrapping TextWidget:paintTo (frontend/ui/widget/textwidget.lua:338), UIManager:_refresh
+-- (frontend/ui/uimanager.lua:1200) and UIManager:scheduleIn (:413) to see what each screen drew and queued, and writes
+-- what it saw to results.json plus one PNG per screen, then quits. Any error lands in results.error.
 local dir = os.getenv("TODDLER_WALK_DIR")
 if not dir then
     return
@@ -121,7 +121,8 @@ end
 local function spy_on_drawing()
     local TextWidget = require("ui/widget/textwidget")
     local Shapes = require("shapes")
-    local paint_text, render, refresh = TextWidget.paintTo, Shapes.render, UIManager._refresh
+    local paint_text, render = TextWidget.paintTo, Shapes.render
+    local refresh, schedule_in = UIManager._refresh, UIManager.scheduleIn
     TextWidget.paintTo = function(widget, ...)
         note("text", widget.text)
         return paint_text(widget, ...)
@@ -133,6 +134,10 @@ local function spy_on_drawing()
     UIManager._refresh = function(manager, mode, ...)
         note("refreshes", mode)
         return refresh(manager, mode, ...)
+    end
+    UIManager.scheduleIn = function(manager, ...)
+        note("refreshes", "scheduled")
+        return schedule_in(manager, ...)
     end
 end
 
@@ -221,6 +226,27 @@ local function walk()
         background = pixel(5, 5),
         exit_label = holds(buttons[4], "#000000"),
     }
+    tap(game.buttons[1])
+    local t0 = time.now()
+    results.taps = {}
+    gesture("tap", 632, 300)
+    UIManager:forceRePaint()
+    results.taps.gap = game.state
+    gesture("tap", 100, 1500)
+    UIManager:forceRePaint()
+    results.taps.beside_seventh = game.state
+    gesture("tap", 300, 60)
+    UIManager:forceRePaint()
+    results.taps.header = game.state
+    gesture("hold", 300, 300, t0)
+    gesture("hold_release", 300, 300, t0 + time.s(1))
+    UIManager:forceRePaint()
+    results.taps.slow_press = game.state
+    gesture("hold", 300, 300, t0)
+    gesture("hold_release", 300, 300, t0 + time.s(1))
+    UIManager:forceRePaint()
+    results.taps.slow_press_on_answer = game.state
+    game.state = "start"
     spy_on_drawing()
     results.colors = play(game, 1, "colors")
     results.ink = {}

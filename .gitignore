@@ -1,0 +1,14 @@
+.DS_Store
+*.log
+*.swp
+*~
+
+.env
+.env.*
+!.env.example
+
+# Test artefacts: scratch KO_HOME profiles and emulator captures.
+/spec/.artifacts/
+
+# CLAUDE.md is excluded by the global ~/.cvsignore; track it in this repo
+!CLAUDE.md
